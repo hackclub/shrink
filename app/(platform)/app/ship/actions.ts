@@ -4,16 +4,16 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 
-import { queueSync } from "@/lib/server/airtable";
+import { queueRemoveShip, queueSync } from "@/lib/server/airtable";
 import { actionUser } from "@/lib/server/auth/current";
-import { loadShipAndAuthor, shipShipped } from "@/lib/server/effects";
+import { loadShipAndAuthor, shipShipped, shipUnshipped } from "@/lib/server/effects";
 import { requestOrigin } from "@/lib/server/origin";
 import { submit } from "@/lib/server/secondary";
 import type { Check } from "@/lib/scan";
 import { hm } from "@/lib/program";
 import { deepScan, forgetSource, quickScan, repoKey, type ScanInput } from "@/lib/server/scan";
 import { take, takeDistinct } from "@/lib/server/ratelimit";
-import { ShipError, createShip } from "@/lib/server/ships";
+import { ShipError, createShip, unship } from "@/lib/server/ships";
 
 export type ShipFormState = { error: string | null };
 
@@ -51,6 +51,21 @@ export async function shipAction(_prev: ShipFormState, form: FormData): Promise<
   queueSync({ ships: [id] });
   revalidatePath("/", "layout");
   redirect(`/app/ships/${id}?shipped=1`);
+}
+
+export async function unshipAction(shipId: string): Promise<ShipFormState> {
+  const user = await actionUser();
+  try {
+    const ship = await unship(user, String(shipId));
+    after(() => shipUnshipped(ship, user));
+    queueRemoveShip(ship.id);
+  } catch (e) {
+    if (e instanceof ShipError) return { error: e.message };
+    console.error("[unship] failed", e);
+    return { error: "Something broke on our side. Try again in a minute." };
+  }
+  revalidatePath("/", "layout");
+  return { error: null };
 }
 
 export type ScanResult = { checks: Check[] } | { limited: string };

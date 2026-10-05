@@ -47,6 +47,10 @@ export async function shipShipped(ship: Ship, author: User, origin: string) {
   );
 }
 
+export async function shipUnshipped(ship: Ship, author: User) {
+  await channel(`${who(author)} unshipped *${esc(ship.title)}*, so it's out of the queue.`);
+}
+
 export async function shipDecided(ship: Ship, author: User, origin: string) {
   const link = `<${origin}/app/ships/${ship.id}|${esc(ship.title)}>`;
   if (ship.state === "approved") {

@@ -7,6 +7,7 @@ import { shipById } from "@/lib/server/ships";
 
 import CopyUri from "./CopyUri";
 import Shipped from "./Shipped";
+import Unship from "./Unship";
 
 export default async function ShipPage({
   params,
@@ -46,6 +47,18 @@ export default async function ShipPage({
         </div>
 
         <div className="flex flex-col gap-5">
+          {ship.state === "pending" && mine && (
+            <Unship
+              id={ship.id}
+              reshipOf={ship.reshipOf}
+              title={ship.title}
+              description={ship.description}
+              dataUri={ship.dataUri}
+              sourceUrl={ship.sourceUrl ?? ""}
+              hackatimeProjects={ship.hackatimeProjects}
+              claimedBadges={ship.claimedBadges}
+            />
+          )}
           {ship.state !== "pending" && (
             <div className={`card px-5 py-4 ${ship.state === "approved" ? "border-black bg-white" : "bg-ink text-white"}`}>
               <p className="label" style={ship.state === "rejected" ? { color: "rgba(255,255,255,0.6)" } : undefined}>

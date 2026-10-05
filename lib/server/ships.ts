@@ -101,6 +101,23 @@ export async function createShip(user: User, input: ShipInput): Promise<Ship> {
   return ship;
 }
 
+// The author pulls a ship back before anyone has decided it. It's deleted outright:
+// nothing was awarded, and its Hackatime projects free up to ship again.
+export async function unship(user: User, shipId: string): Promise<Ship> {
+  return db.transaction(async (tx) => {
+    const [ship] = await tx.select().from(ships).where(eq(ships.id, shipId)).for("update").limit(1);
+    if (!ship || ship.userId !== user.id) throw new ShipError("That ship doesn't exist.");
+    if (ship.state !== "pending") throw new ShipError("Only a ship that's still in review can be unshipped.");
+    if (ship.verdict) throw new ShipError("A reviewer already got to this one, so it can't be unshipped.");
+    const [gone] = await tx
+      .delete(ships)
+      .where(and(eq(ships.id, ship.id), eq(ships.state, "pending"), isNull(ships.verdict)))
+      .returning();
+    if (!gone) throw new ShipError("A reviewer already got to this one, so it can't be unshipped.");
+    return gone;
+  });
+}
+
 export type Decision =
   | { kind: "approve"; awardedHours: number; badges: string[]; message: string; internalNote: string }
   | { kind: "reject"; message: string; internalNote: string };

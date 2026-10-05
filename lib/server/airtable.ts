@@ -439,6 +439,22 @@ export async function syncAll(origin: string) {
   return run({ all: true }, origin);
 }
 
+// An unshipped ship is deleted from Postgres, so drop its mirror row too.
+export function queueRemoveShip(shipId: string): void {
+  if (!airtableConfigured()) return;
+  after(async () => {
+    try {
+      const q = new URLSearchParams({ filterByFormula: `{ID} = '${shipId.replace(/'/g, "")}'`, "fields[]": "ID" });
+      const res = await call<{ records: Rec[] }>("GET", T.ships(), undefined, `?${q}`);
+      if (res.records.length) {
+        await call("DELETE", T.ships(), undefined, `?${res.records.map((r) => `records[]=${r.id}`).join("&")}`);
+      }
+    } catch (e) {
+      console.error("[airtable] removing ship failed", e);
+    }
+  });
+}
+
 // Call from a server action or route handler; the push happens after the response.
 export function queueSync(t: SyncTargets): void {
   if (!airtableConfigured()) return;
