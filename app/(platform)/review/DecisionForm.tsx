@@ -14,18 +14,21 @@ export default function DecisionForm({
   claimedSeconds,
   claimedBadges,
   isOwn,
+  fraudMessage,
 }: {
   shipId: string;
   nextId: string;
   claimedSeconds: number;
   claimedBadges: string[];
   isOwn: boolean;
+  // Set when the secondary check failed: the only way out is sending it back, with this prefilled.
+  fraudMessage?: string;
 }) {
   const [state, action, pending] = useActionState<DecisionState, FormData>(decideAction, { error: null });
   const maxHours = Math.round((claimedSeconds / 3600) * 10) / 10;
   const [hours, setHours] = useState(String(maxHours));
   const [badges, setBadges] = useState<Set<string>>(new Set(claimedBadges));
-  const [kind, setKind] = useState<"approve" | "reject">("approve");
+  const [kind, setKind] = useState<"approve" | "reject">(fraudMessage ? "reject" : "approve");
 
   const h = Number(hours);
   const bites = Number.isFinite(h) && h > 0 ? bitesFor(Math.min(h, maxHours) * 3600, [...badges]) : 0;
@@ -39,20 +42,26 @@ export default function DecisionForm({
 
       {isOwn && <Notice>This is your own ship. Only an admin can decide it.</Notice>}
 
-      <div className="flex gap-1 text-[0.95rem] font-medium" role="tablist">
-        {(["approve", "reject"] as const).map((k) => (
-          <button
-            key={k}
-            type="button"
-            role="tab"
-            aria-selected={kind === k}
-            onClick={() => setKind(k)}
-            className={`rounded-[4px] px-3 py-1 ${kind === k ? (k === "approve" ? "bg-accent" : "bg-ink text-white") : "text-black/60 hover:bg-black/5"}`}
-          >
-            {k === "approve" ? "approve" : "send back"}
-          </button>
-        ))}
-      </div>
+      {fraudMessage ? (
+        <p className="text-sm font-medium text-black/60">
+          The fraud check failed this one. Read their note above, edit the message if it needs it, and send it back. The author still sees it as in review until you do.
+        </p>
+      ) : (
+        <div className="flex gap-1 text-[0.95rem] font-medium" role="tablist">
+          {(["approve", "reject"] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={kind === k}
+              onClick={() => setKind(k)}
+              className={`rounded-[4px] px-3 py-1 ${kind === k ? (k === "approve" ? "bg-accent" : "bg-ink text-white") : "text-black/60 hover:bg-black/5"}`}
+            >
+              {k === "approve" ? "approve" : "send back"}
+            </button>
+          ))}
+        </div>
+      )}
 
       {kind === "approve" && (
         <>
@@ -125,6 +134,7 @@ export default function DecisionForm({
           rows={3}
           maxLength={2000}
           className="input"
+          defaultValue={fraudMessage}
           placeholder={kind === "approve" ? "Love the procedural beat. Ship more!" : "Runs, but it's a static page: nothing reacts. Add some input and re-ship."}
         />
       </div>

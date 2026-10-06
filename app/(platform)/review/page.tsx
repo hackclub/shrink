@@ -6,7 +6,7 @@ import type { Check } from "@/lib/scan";
 import type { Ship } from "@/lib/server/db/schema";
 import { requireRole } from "@/lib/server/auth/current";
 import { fetchProjects } from "@/lib/server/hackatime";
-import { reviewQueue } from "@/lib/server/ships";
+import { FRAUD_MESSAGE, reviewQueue } from "@/lib/server/ships";
 
 import DecisionForm from "./DecisionForm";
 
@@ -75,7 +75,7 @@ export default async function ReviewPage({
                   </span>
                   <span className="muted mt-0.5 flex items-center justify-between gap-2 text-sm font-medium">
                     <span className="truncate">{q.author.displayName}</span>
-                    <span>{showDone ? <ShipPill ship={q.ship} /> : <Hours seconds={q.ship.claimedSeconds} />}</span>
+                    <span>{showDone || q.ship.secondaryState === "failed" ? <ShipPill ship={q.ship} /> : <Hours seconds={q.ship.claimedSeconds} />}</span>
                   </span>
                 </Link>
               </li>
@@ -176,7 +176,21 @@ export default async function ReviewPage({
 
                 <SecondarySummary ship={current.ship} />
 
-                {current.ship.verdict && current.ship.state === "pending" ? (
+                {current.ship.state === "pending" && current.ship.secondaryState === "failed" ? (
+                  reviewer.role === "admin" ? (
+                    <DecisionForm
+                      key={current.ship.id}
+                      shipId={current.ship.id}
+                      nextId={next?.ship.id ?? ""}
+                      claimedSeconds={current.ship.claimedSeconds}
+                      claimedBadges={current.ship.claimedBadges}
+                      isOwn={false}
+                      fraudMessage={FRAUD_MESSAGE}
+                    />
+                  ) : (
+                    <Notice>The fraud check failed this one. An admin reads their note and sends it back.</Notice>
+                  )
+                ) : current.ship.verdict && current.ship.state === "pending" ? (
                   <div className="card border-black bg-white px-4 py-3">
                     <p className="label">approved · {when(new Date(current.ship.verdict.at))} · waiting on the secondary check</p>
                     <p className="font-pixel text-[1.4rem]">
@@ -191,7 +205,7 @@ export default async function ReviewPage({
                       <p className="mt-2 border-t border-current/20 pt-2 font-mono text-xs opacity-70">internal: {current.ship.verdict.internalNote}</p>
                     )}
                     <p className="mt-2 border-t border-current/20 pt-2 text-sm font-medium text-black/60">
-                      The author still sees it as in review. It lands once the check passes, or goes back to them if it doesn&apos;t.
+                      The author still sees it as in review. It lands once the check passes. If it fails, it comes back to the queue for an admin.
                     </p>
                   </div>
                 ) : current.ship.state === "pending" ? (
@@ -234,6 +248,7 @@ export default async function ReviewPage({
 
 // "approved" here would be a lie until the held approval lands.
 function ShipPill({ ship }: { ship: Ship }) {
+  if (ship.state === "pending" && ship.secondaryState === "failed") return <span className="pill pill-rejected">fraud</span>;
   if (ship.state === "pending" && ship.verdict) return <span className="pill pill-pending">held</span>;
   return <StatePill state={ship.state} />;
 }

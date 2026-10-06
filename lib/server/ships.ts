@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, ne, not, or, sql } from "drizzle-orm";
 
 import { blocking } from "@/lib/scan";
 import { BADGE_BY_SLUG, MAX_URI_BYTES, MIN_SHIP_SECONDS, REPO_URL, bitesFor, byteLength } from "@/lib/program";
@@ -130,8 +130,11 @@ export type Decision =
   | { kind: "approve"; awardedHours: number; badges: string[]; message: string; internalNote: string }
   | { kind: "reject"; message: string; internalNote: string };
 
-// What the author sees when the secondary check turns a ship down. They never hear there were two.
-const SECONDARY_MESSAGE = "This one didn't pass review, so it can't be approved. If you think that's a mistake, ask in #shrink.";
+// Prefilled for an admin confirming a failed secondary check. They can edit it before it goes out.
+export const FRAUD_MESSAGE = "Unfortunately, your project did not pass fraud reviews. Please be on the lookout for a message from @Fraud Squad.";
+
+// The fraud squad's score and note, kept with the rejection for the record.
+const secondaryLine = (ship: Ship) => `secondary check ${ship.secondaryScore ?? "?"}/10${ship.secondaryNote ? `: ${ship.secondaryNote}` : ""}`;
 
 const gateOpen = (ship: Ship) => !env.SECONDARY_CHECK_KEY || ship.secondaryState === "passed";
 
@@ -146,10 +149,16 @@ export async function decide(reviewer: User, shipId: string, decision: Decision)
   return db.transaction(async (tx) => {
     const [ship] = await tx.select().from(ships).where(eq(ships.id, shipId)).for("update").limit(1);
     if (!ship) throw new ShipError("That ship doesn't exist.");
-    if (ship.state !== "pending" || ship.verdict) throw new ShipError("Someone already decided this one.");
+    // A failed secondary check holds the ship (even one with an approval waiting) for an
+    // admin to read the fraud squad's note and send it back. It can't be approved.
+    const failed = ship.secondaryState === "failed";
+    if (ship.state !== "pending" || (ship.verdict && !failed)) throw new ShipError("Someone already decided this one.");
     if (ship.userId === reviewer.id && reviewer.role !== "admin") throw new ShipError("You can't review your own ship.");
+    if (failed && reviewer.role !== "admin") throw new ShipError("This one failed the fraud check. Only an admin can send it back.");
+    if (failed && decision.kind === "approve") throw new ShipError("This one failed the fraud check, so it can't be approved.");
 
     if (decision.kind === "reject") {
+      const note = [failed && secondaryLine(ship), ship.verdict?.internalNote, decision.internalNote.trim()].filter(Boolean).join("\n");
       const [updated] = await tx
         .update(ships)
         .set({
@@ -157,7 +166,7 @@ export async function decide(reviewer: User, shipId: string, decision: Decision)
           reviewerId: reviewer.id,
           reviewedAt: new Date(),
           publicMessage: message,
-          internalNote: decision.internalNote.trim() || null,
+          internalNote: note || null,
         })
         .where(and(eq(ships.id, ship.id), eq(ships.state, "pending")))
         .returning();
@@ -224,29 +233,13 @@ async function approve(tx: Tx, ship: Ship, v: Verdict): Promise<Ship> {
 }
 
 // Call after the secondary check's result changes. Lands a held approval once it
-// passed, or sends the ship back if it failed. Returns the ship only if this call
-// decided it, so the caller knows to DM and sync.
+// passed. A failure decides nothing here: the ship waits in the queue for an admin
+// to confirm it (see decide()). Returns the ship only if this call decided it, so
+// the caller knows to DM and sync.
 export async function settle(shipId: string): Promise<Ship | null> {
   return db.transaction(async (tx) => {
     const [ship] = await tx.select().from(ships).where(eq(ships.id, shipId)).for("update").limit(1);
     if (!ship || ship.state !== "pending") return null;
-
-    if (ship.secondaryState === "failed") {
-      const note = `secondary check ${ship.secondaryScore ?? "?"}/10${ship.secondaryNote ? `: ${ship.secondaryNote}` : ""}`;
-      const [updated] = await tx
-        .update(ships)
-        .set({
-          state: "rejected",
-          reviewerId: ship.verdict?.reviewerId ?? null,
-          reviewedAt: new Date(),
-          publicMessage: SECONDARY_MESSAGE,
-          internalNote: [note, ship.verdict?.internalNote].filter(Boolean).join("\n"),
-        })
-        .where(and(eq(ships.id, ship.id), eq(ships.state, "pending")))
-        .returning();
-      return updated ?? null;
-    }
-
     if (ship.verdict && gateOpen(ship)) return approve(tx, ship, ship.verdict);
     return null;
   });
@@ -285,9 +278,11 @@ export async function showcase(limit = 9) {
     .limit(limit);
 }
 
-// The queue is everything nobody has decided; done includes approvals still
-// waiting on the secondary check.
+// The queue is everything nobody has decided, with failed secondary checks first
+// (held approvals included) since they're waiting on an admin. Done includes
+// approvals still waiting on the secondary check.
 export async function reviewQueue(tab: "queue" | "done" = "queue"): Promise<QueueItem[]> {
+  const failed = and(eq(ships.state, "pending"), eq(ships.secondaryState, "failed"));
   const rows = await db
     .select({
       ship: ships,
@@ -304,9 +299,9 @@ export async function reviewQueue(tab: "queue" | "done" = "queue"): Promise<Queu
     .innerJoin(users, eq(ships.userId, users.id))
     .where(
       tab === "queue"
-        ? and(eq(ships.state, "pending"), isNull(ships.verdict))
-        : or(ne(ships.state, "pending"), isNotNull(ships.verdict)),
+        ? or(and(eq(ships.state, "pending"), isNull(ships.verdict)), failed)
+        : and(or(ne(ships.state, "pending"), isNotNull(ships.verdict)), not(failed!)),
     )
-    .orderBy(ships.createdAt);
+    .orderBy(desc(sql`coalesce(${ships.secondaryState} = 'failed', false)`), ships.createdAt);
   return rows;
 }

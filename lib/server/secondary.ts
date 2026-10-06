@@ -11,8 +11,9 @@ import { settle } from "./ships";
 
 // Every ship also goes through a secondary check, run outside SHRINK. It happens
 // alongside the normal review: an approval is held until the check passes (see
-// settle() in ships.ts), and a failed check sends the ship back. Authors only
-// ever see one review. Results are polled by /api/cron/secondary.
+// settle() in ships.ts), and a failed check holds the ship for an admin to read the
+// fraud squad's note and send it back (decide() in ships.ts). Authors only ever see
+// one review. Results are polled by /api/cron/secondary.
 
 type Remote = {
   id: string;
