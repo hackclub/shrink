@@ -46,7 +46,7 @@ export async function shipAction(_prev: ShipFormState, form: FormData): Promise<
   after(async () => {
     const row = await loadShipAndAuthor(id);
     if (row) await shipShipped(row.ship, row.author, origin);
-    await submit(id).catch((e) => console.error("[secondary] submit threw", e));
+    await submit(id, origin).catch((e) => console.error("[secondary] submit threw", e));
   });
   queueSync({ ships: [id] });
   revalidatePath("/", "layout");

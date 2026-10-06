@@ -6,6 +6,7 @@ import { db } from "./db/client";
 import { ships, type Ship } from "./db/schema";
 import { loadShipAndAuthor, shipDecided } from "./effects";
 import { env } from "./env";
+import { playUrl } from "./play";
 import { settle } from "./ships";
 
 // Every ship also goes through a secondary check, run outside SHRINK. It happens
@@ -38,7 +39,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
 const why = (json: unknown) => (json as { message?: string }).message ?? "no message";
 
 // Idempotent on the ship id, so a retry after a timeout can't double-submit.
-export async function submit(shipId: string): Promise<boolean> {
+export async function submit(shipId: string, origin: string): Promise<boolean> {
   if (!secondaryEnabled()) return false;
   const row = await loadShipAndAuthor(shipId);
   if (!row || row.ship.secondaryId) return false;
@@ -48,14 +49,21 @@ export async function submit(shipId: string): Promise<boolean> {
     console.error(`[secondary] ship ${ship.id}: author has no Slack or Hackatime id`);
     return false;
   }
-  const { status, json } = await call<Remote & { message?: string }>("POST", "/projects", {
+  const body = {
     name: ship.title,
     kind: "hackatime",
     codeUrl: ship.sourceUrl,
+    demoUrl: playUrl(origin, ship.id),
     submitter: { slackId: author.slackId ?? undefined, hackatimeId },
     hackatimeProjects: ship.hackatimeProjects,
     externalId: ship.id,
-  });
+  };
+  let { status, json } = await call<Remote & { message?: string }>("POST", "/projects", body);
+  // demoUrl isn't in their documented fields; if they reject it, submit without rather than not at all.
+  if (status === 400) {
+    console.error(`[secondary] submit ${ship.id} rejected with demoUrl (${why(json)}), retrying without`);
+    ({ status, json } = await call<Remote & { message?: string }>("POST", "/projects", { ...body, demoUrl: undefined }));
+  }
   if (status !== 200 && status !== 201) {
     console.error(`[secondary] submit ${ship.id} failed: ${status} ${why(json)}`);
     return false;
@@ -138,7 +146,7 @@ export async function sync(origin: string) {
     .from(ships)
     .where(and(ne(ships.state, "rejected"), isNull(ships.secondaryId)));
   let sent = 0;
-  for (const s of unsent) if (await submit(s.id)) sent++;
+  for (const s of unsent) if (await submit(s.id, origin)) sent++;
 
   const results = [...(await list("awaiting_outcome")), ...(await list("rejected_fraud"))];
   const ids = [...new Set(results.map((p) => p.externalId).filter((id): id is string => !!id))];

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { env } from "./env";
 
@@ -51,4 +51,9 @@ export function safeEqual(a: string, b: string): boolean {
   const x = Buffer.from(a);
   const y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
+}
+
+// A short, unforgeable tag for `s` (64 bits, 11 chars). Good for capability links, not passwords.
+export function shortMac(s: string): string {
+  return createHmac("sha256", key()).update(`mac.${s}`).digest().subarray(0, 8).toString("base64url");
 }
