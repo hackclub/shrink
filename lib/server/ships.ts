@@ -12,6 +12,7 @@ import { fetchSeconds } from "./hackatime";
 import { fullScan } from "./scan";
 import * as ledger from "./ledger";
 import { payReferral } from "./referrals";
+import { withdraw } from "./secondary";
 
 export class ShipError extends Error {}
 
@@ -102,13 +103,20 @@ export async function createShip(user: User, input: ShipInput): Promise<Ship> {
 }
 
 // The author pulls a ship back before anyone has decided it. It's deleted outright:
-// nothing was awarded, and its Hackatime projects free up to ship again.
+// nothing was awarded, and its Hackatime projects free up to ship again. Its
+// secondary check submission is deleted too, which only works before anyone scored it.
 export async function unship(user: User, shipId: string): Promise<Ship> {
   return db.transaction(async (tx) => {
     const [ship] = await tx.select().from(ships).where(eq(ships.id, shipId)).for("update").limit(1);
     if (!ship || ship.userId !== user.id) throw new ShipError("That ship doesn't exist.");
     if (ship.state !== "pending") throw new ShipError("Only a ship that's still in review can be unshipped.");
     if (ship.verdict) throw new ShipError("A reviewer already got to this one, so it can't be unshipped.");
+    // The row lock holds off settle() while the secondary check is asked to let go.
+    if (ship.secondaryId) {
+      const r = await withdraw(ship.secondaryId, `${user.displayName} (author, unshipped on SHRINK)`);
+      if (r === "reviewed") throw new ShipError("A reviewer already got to this one, so it can't be unshipped.");
+      if (r === "failed") throw new ShipError("Couldn't unship it just now. Try again in a minute.");
+    }
     const [gone] = await tx
       .delete(ships)
       .where(and(eq(ships.id, ship.id), eq(ships.state, "pending"), isNull(ships.verdict)))

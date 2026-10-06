@@ -68,11 +68,28 @@ export async function submit(shipId: string, origin: string): Promise<boolean> {
     console.error(`[secondary] submit ${ship.id} failed: ${status} ${why(json)}`);
     return false;
   }
-  await db
+  const [saved] = await db
     .update(ships)
     .set({ secondaryId: json.id, secondaryState: "waiting" })
-    .where(and(eq(ships.id, ship.id), isNull(ships.secondaryId)));
+    .where(and(eq(ships.id, ship.id), isNull(ships.secondaryId)))
+    .returning({ id: ships.id });
+  // Unshipped while this was in flight: take it back out on their side too.
+  if (!saved && !(await db.select({ id: ships.id }).from(ships).where(eq(ships.id, ship.id)).limit(1)).length) {
+    await withdraw(json.id, `${author.displayName} (author, unshipped on SHRINK)`);
+    return false;
+  }
   return true;
+}
+
+// Deletes a submission nobody has scored yet, for an unshipped ship. "reviewed" means
+// a fraud reviewer already scored it, after which their side refuses.
+export async function withdraw(secondaryId: string, signedOffBy: string): Promise<"ok" | "reviewed" | "failed"> {
+  if (!secondaryEnabled()) return "ok";
+  const { status, json } = await call("DELETE", `/projects/${secondaryId}`, { signedOffBy });
+  if (status === 200 || status === 404) return "ok";
+  if (status === 409 && /already reviewed/i.test(why(json))) return "reviewed";
+  console.error(`[secondary] withdraw ${secondaryId} failed: ${status} ${why(json)}`);
+  return "failed";
 }
 
 // Stores a result and settles the ship. Returns the ship if that decided it.
