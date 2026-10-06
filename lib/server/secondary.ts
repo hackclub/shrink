@@ -19,6 +19,7 @@ type Remote = {
   externalId: string | null;
   state: "awaiting_review" | "awaiting_outcome" | "rejected_fraud" | "decided";
   creditedSeconds: number | null;
+  demoUrl: string | null;
   review: { trustScore: number; note: string | null; at: string } | null;
 };
 
@@ -38,18 +39,16 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
 
 const why = (json: unknown) => (json as { message?: string }).message ?? "no message";
 
-// Idempotent on the ship id, so a retry after a timeout can't double-submit.
-export async function submit(shipId: string, origin: string): Promise<boolean> {
-  if (!secondaryEnabled()) return false;
-  const row = await loadShipAndAuthor(shipId);
-  if (!row || row.ship.secondaryId) return false;
-  const { ship, author } = row;
+type Author = NonNullable<Awaited<ReturnType<typeof loadShipAndAuthor>>>["author"];
+
+// Idempotent on externalId: a repeat returns the existing project, only filling in a missing demoUrl.
+async function post(ship: Ship, author: Author, origin: string) {
   const hackatimeId = /^\d+$/.test(author.hackatimeAccountId ?? "") ? Number(author.hackatimeAccountId) : undefined;
   if (!author.slackId && !hackatimeId) {
     console.error(`[secondary] ship ${ship.id}: author has no Slack or Hackatime id`);
-    return false;
+    return null;
   }
-  const body = {
+  const { status, json } = await call<Remote & { message?: string }>("POST", "/projects", {
     name: ship.title,
     kind: "hackatime",
     codeUrl: ship.sourceUrl,
@@ -57,17 +56,22 @@ export async function submit(shipId: string, origin: string): Promise<boolean> {
     submitter: { slackId: author.slackId ?? undefined, hackatimeId },
     hackatimeProjects: ship.hackatimeProjects,
     externalId: ship.id,
-  };
-  let { status, json } = await call<Remote & { message?: string }>("POST", "/projects", body);
-  // demoUrl isn't in their documented fields; if they reject it, submit without rather than not at all.
-  if (status === 400) {
-    console.error(`[secondary] submit ${ship.id} rejected with demoUrl (${why(json)}), retrying without`);
-    ({ status, json } = await call<Remote & { message?: string }>("POST", "/projects", { ...body, demoUrl: undefined }));
-  }
+  });
   if (status !== 200 && status !== 201) {
     console.error(`[secondary] submit ${ship.id} failed: ${status} ${why(json)}`);
-    return false;
+    return null;
   }
+  return json;
+}
+
+// Idempotent on the ship id, so a retry after a timeout can't double-submit.
+export async function submit(shipId: string, origin: string): Promise<boolean> {
+  if (!secondaryEnabled()) return false;
+  const row = await loadShipAndAuthor(shipId);
+  if (!row || row.ship.secondaryId) return false;
+  const { ship, author } = row;
+  const json = await post(ship, author, origin);
+  if (!json) return false;
   const [saved] = await db
     .update(ships)
     .set({ secondaryId: json.id, secondaryState: "waiting" })
@@ -165,6 +169,14 @@ export async function sync(origin: string) {
   let sent = 0;
   for (const s of unsent) if (await submit(s.id, origin)) sent++;
 
+  // Projects sent before we had a play link: resending fills it in. Stops once they all have one.
+  let linked = 0;
+  for (const p of await list("awaiting_review")) {
+    if (p.demoUrl || !p.externalId) continue;
+    const row = await loadShipAndAuthor(p.externalId);
+    if (row && (await post(row.ship, row.author, origin))) linked++;
+  }
+
   const results = [...(await list("awaiting_outcome")), ...(await list("rejected_fraud"))];
   const ids = [...new Set(results.map((p) => p.externalId).filter((id): id is string => !!id))];
   const local = new Map(
@@ -192,5 +204,5 @@ export async function sync(origin: string) {
       }
     }
   }
-  return { sent, checked: results.length, decided, reported };
+  return { sent, linked, checked: results.length, decided, reported };
 }
