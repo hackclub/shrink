@@ -32,24 +32,37 @@ export async function setRoleAction(_prev: AdminState, form: FormData): Promise<
   return { error: null, ok: "Role updated." };
 }
 
+// Prizes cost a handful of BITES, so anything bigger than this is a typo.
+const MAX_ADJUST = 50;
+
 export async function adjustAction(_prev: AdminState, form: FormData): Promise<AdminState> {
   const admin = await actionRole("admin");
   const userId = str(form, "user_id");
   const amount = Number(str(form, "amount"));
   const reason = str(form, "reason").trim();
+  // Made when the form opens, so a double-click or a retry posts once.
+  const nonce = str(form, "nonce");
+  if (!/^[0-9a-f-]{36}$/i.test(nonce)) return { error: "Reload the page and try again." };
+  if (userId === admin.id) return { error: "Get a colleague to change your own BITES." };
   if (!Number.isInteger(amount) || amount === 0) return { error: "Amount has to be a whole non-zero number of BITES." };
+  if (Math.abs(amount) > MAX_ADJUST) return { error: `At most ${MAX_ADJUST} BITES either way at a time.` };
   if (!reason) return { error: "Say why." };
-  await db.transaction(async (tx) => {
-    await ledger.lockUser(userId, tx);
-    await ledger.post(tx, {
+  if (reason.length > 200) return { error: "Keep the reason under 200 characters." };
+  const result = await db.transaction(async (tx) => {
+    const [user] = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    if (!user) return "missing";
+    const posted = await ledger.post(tx, {
       userId,
       amount,
       type: "adjustment",
       reason,
-      idempotencyKey: `adjust:${userId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+      idempotencyKey: `adjust:${userId}:${nonce}`,
       actorId: admin.id,
     });
+    return posted ? "posted" : "duplicate";
   });
+  if (result === "missing") return { error: "No such person." };
+  if (result === "duplicate") return { error: null, ok: "Already posted." };
   await db.insert(auditEvents).values({ actorId: admin.id, action: "ledger.adjust", subject: userId, detail: { amount, reason } });
   queueSync({ users: [userId] });
   revalidatePath("/admin");

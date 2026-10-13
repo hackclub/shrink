@@ -28,7 +28,7 @@ export default function People({ people, selfId }: { people: Person[]; selfId: s
   const [roleState, roleAction] = useActionState<AdminState, FormData>(setRoleAction, { error: null });
   const [linkState, linkAction] = useActionState<AdminState, FormData>(referralLinkAction, { error: null });
   const [adjState, adjAction, adjPending] = useActionState<AdminState, FormData>(adjustAction, { error: null });
-  const [adjusting, setAdjusting] = useState<Person | null>(null);
+  const [adjusting, setAdjusting] = useState<{ person: Person; nonce: string } | null>(null);
 
   const needle = q.trim().toLowerCase();
   const shown = needle
@@ -106,9 +106,15 @@ export default function People({ people, selfId }: { people: Person[]; selfId: s
                   )}
                 </td>
                 <td className="px-3 py-2 text-right">
-                  <button type="button" onClick={() => setAdjusting(p)} className="text-sm font-medium underline decoration-1 underline-offset-[0.2em] hover:decoration-2">
-                    ± BITES
-                  </button>
+                  {p.id !== selfId && (
+                    <button
+                      type="button"
+                      onClick={() => setAdjusting({ person: p, nonce: crypto.randomUUID() })}
+                      className="text-sm font-medium underline decoration-1 underline-offset-[0.2em] hover:decoration-2"
+                    >
+                      ± BITES
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -119,7 +125,7 @@ export default function People({ people, selfId }: { people: Person[]; selfId: s
       {adjusting && (
         <div className="flex flex-col gap-3 border-t-4 border-rule pt-4">
           <p className="font-semibold tracking-tight">
-            Adjust BITES for {adjusting.displayName} <span className="font-mono text-xs text-black/50">({adjusting.bites} now)</span>
+            Adjust BITES for {adjusting.person.displayName} <span className="font-mono text-xs text-black/50">({adjusting.person.bites} now)</span>
           </p>
           <form
             action={(fd) => {
@@ -128,18 +134,19 @@ export default function People({ people, selfId }: { people: Person[]; selfId: s
             }}
             className="flex flex-wrap items-end gap-3"
           >
-            <input type="hidden" name="user_id" value={adjusting.id} />
+            <input type="hidden" name="user_id" value={adjusting.person.id} />
+            <input type="hidden" name="nonce" value={adjusting.nonce} />
             <div>
               <label className="label" htmlFor="amount">
                 amount (negative to take back)
               </label>
-              <input id="amount" name="amount" type="number" step="1" required className="input w-32 font-mono" />
+              <input id="amount" name="amount" type="number" step="1" min={-50} max={50} required className="input w-32 font-mono" />
             </div>
             <div className="min-w-[240px] flex-1">
               <label className="label" htmlFor="reason">
                 reason · goes in the ledger
               </label>
-              <input id="reason" name="reason" required className="input" placeholder="sticker sheet bonus / manual fix" />
+              <input id="reason" name="reason" required maxLength={200} className="input" placeholder="sticker sheet bonus / manual fix" />
             </div>
             <PixelButton type="submit" variant="dark" disabled={adjPending}>
               post
