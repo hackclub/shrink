@@ -178,7 +178,9 @@ export async function sync(origin: string) {
     if (row && (await post(row.ship, row.author, origin))) linked++;
   }
 
-  const results = [...(await list("awaiting_outcome")), ...(await list("rejected_fraud"))];
+  // "decided" too: an outcome recorded on their side (e.g. in Telescreen) moves a passed
+  // project out of awaiting_outcome, and without it the ship would sit at waiting forever.
+  const results = [...(await list("awaiting_outcome")), ...(await list("rejected_fraud")), ...(await list("decided"))];
   const ids = [...new Set(results.map((p) => p.externalId).filter((id): id is string => !!id))];
   const local = new Map(
     (ids.length ? await db.select().from(ships).where(inArray(ships.id, ids)) : []).map((s) => [s.id, s]),
@@ -191,6 +193,8 @@ export async function sync(origin: string) {
     if (!ship) continue;
     // Failed and already sent back: nothing left to do, and that list only grows.
     if (p.state === "rejected_fraud" && ship.secondaryState === "failed" && ship.state !== "pending") continue;
+    // Same for decided ones we already have: that list only grows too.
+    if (p.state === "decided" && ship.secondaryState === "passed" && ship.secondaryScore === (p.review?.trustScore ?? null)) continue;
     const settled = await apply(p);
     if (settled) {
       decided.push(settled.id);
