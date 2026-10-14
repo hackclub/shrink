@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, desc, eq, isNotNull, isNull, ne, not, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import { blocking } from "@/lib/scan";
 import { BADGE_BY_SLUG, MAX_URI_BYTES, MIN_SHIP_SECONDS, REPO_URL, bitesFor, byteLength } from "@/lib/program";
@@ -39,8 +40,8 @@ export function validateUri(uri: string): string {
   return trimmed;
 }
 
-export async function projectsInUse(userId: string, exceptShipId?: string): Promise<Set<string>> {
-  const rows = await db
+export async function projectsInUse(userId: string, exceptShipId?: string, tx?: Tx): Promise<Set<string>> {
+  const rows = await (tx ?? db)
     .select({ p: ships.hackatimeProjects, id: ships.id })
     .from(ships)
     .where(and(eq(ships.userId, userId), ne(ships.state, "rejected")));
@@ -83,23 +84,31 @@ export async function createShip(user: User, input: ShipInput): Promise<Ship> {
   if (seconds === null) throw new ShipError("Hackatime couldn't be read for your account. Is your activity set to visible?");
   if (seconds < MIN_SECONDS) throw new ShipError(`Hackatime only has ${Math.round(seconds / 60)} minutes on those projects. Log at least 30.`);
 
-  const [ship] = await db
-    .insert(ships)
-    .values({
-      userId: user.id,
-      title,
-      description,
-      dataUri,
-      bytes: byteLength(dataUri),
-      sourceUrl,
-      hackatimeProjects: projects,
-      claimedSeconds: seconds,
-      claimedBadges: badges,
-      reshipOf,
-      scan,
-    })
-    .returning();
-  return ship;
+  // The checks above are slow, so two submits at once could both pass them. Re-check
+  // under a per-user lock so the same Hackatime hours can't land in two ships.
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`ship:${user.id}`}))`);
+    const used = await projectsInUse(user.id, undefined, tx);
+    const clash = projects.find((p) => used.has(p));
+    if (clash) throw new ShipError(`"${clash}" is already part of another ship of yours.`);
+    const [ship] = await tx
+      .insert(ships)
+      .values({
+        userId: user.id,
+        title,
+        description,
+        dataUri,
+        bytes: byteLength(dataUri),
+        sourceUrl,
+        hackatimeProjects: projects,
+        claimedSeconds: seconds,
+        claimedBadges: badges,
+        reshipOf,
+        scan,
+      })
+      .returning();
+    return ship;
+  });
 }
 
 // The author pulls a ship back before anyone has decided it. It's deleted outright:
@@ -156,6 +165,8 @@ export async function decide(reviewer: User, shipId: string, decision: Decision)
     if (ship.userId === reviewer.id && reviewer.role !== "admin") throw new ShipError("You can't review your own ship.");
     if (failed && reviewer.role !== "admin") throw new ShipError("This one failed the fraud check. Only an admin can send it back.");
     if (failed && decision.kind === "approve") throw new ShipError("This one failed the fraud check, so it can't be approved.");
+    if (!failed && !gateOpen(ship) && reviewer.role !== "admin") throw new ShipError("This one hasn't passed the secondary check yet. Only an admin can decide it now.");
+    if (claimedByOther(ship, reviewer.id)) throw new ShipError("Someone else has this one open right now.");
 
     if (decision.kind === "reject") {
       const note = [failed && secondaryLine(ship), ship.verdict?.internalNote, decision.internalNote.trim()].filter(Boolean).join("\n");
@@ -167,6 +178,8 @@ export async function decide(reviewer: User, shipId: string, decision: Decision)
           reviewedAt: new Date(),
           publicMessage: message,
           internalNote: note || null,
+          claimedBy: null,
+          claimedAt: null,
         })
         .where(and(eq(ships.id, ship.id), eq(ships.state, "pending")))
         .returning();
@@ -194,7 +207,7 @@ export async function decide(reviewer: User, shipId: string, decision: Decision)
 
     const [held] = await tx
       .update(ships)
-      .set({ verdict })
+      .set({ verdict, claimedBy: null, claimedAt: null })
       .where(and(eq(ships.id, ship.id), eq(ships.state, "pending"), isNull(ships.verdict)))
       .returning();
     if (!held) throw new ShipError("Someone already decided this one.");
@@ -257,7 +270,58 @@ export async function shipById(id: string) {
 export type QueueItem = {
   ship: Ship;
   author: Pick<User, "id" | "displayName" | "email" | "slackId" | "eligibility" | "avatarUrl">;
+  // Whoever has it open right now, if their claim is still live.
+  claimer: Pick<User, "id" | "displayName"> | null;
 };
+
+// A reviewer's desk renews its claim every minute while the ship is open, so a
+// closed tab frees the ship within this long.
+export const CLAIM_TTL_SECONDS = 150;
+
+const claimLive = sql`${ships.claimedAt} > now() - make_interval(secs => ${CLAIM_TTL_SECONDS})`;
+
+function claimedByOther(ship: Ship, reviewerId: string): boolean {
+  return !!ship.claimedBy && ship.claimedBy !== reviewerId && !!ship.claimedAt && Date.now() - ship.claimedAt.getTime() < CLAIM_TTL_SECONDS * 1000;
+}
+
+// Takes (or renews) the reviewer's hold on a pending ship and drops any other they
+// had, so each reviewer holds at most one. Returns who has it if someone else does.
+export async function claim(reviewer: User, shipId: string): Promise<{ ok: true } | { ok: false; by: string }> {
+  return db.transaction(async (tx) => {
+    await tx
+      .update(ships)
+      .set({ claimedBy: null, claimedAt: null })
+      .where(and(eq(ships.claimedBy, reviewer.id), ne(ships.id, shipId)));
+    const [took] = await tx
+      .update(ships)
+      .set({ claimedBy: reviewer.id, claimedAt: new Date() })
+      .where(
+        and(
+          eq(ships.id, shipId),
+          eq(ships.state, "pending"),
+          or(isNull(ships.claimedBy), eq(ships.claimedBy, reviewer.id), not(claimLive)),
+        ),
+      )
+      .returning({ id: ships.id });
+    if (took) return { ok: true };
+    const [row] = await tx
+      .select({ name: users.displayName })
+      .from(ships)
+      .innerJoin(users, eq(ships.claimedBy, users.id))
+      .where(eq(ships.id, shipId))
+      .limit(1);
+    return { ok: false, by: row?.name ?? "Someone" };
+  });
+}
+
+export async function release(reviewer: User, shipId: string): Promise<void> {
+  await db
+    .update(ships)
+    .set({ claimedBy: null, claimedAt: null })
+    .where(and(eq(ships.id, shipId), eq(ships.claimedBy, reviewer.id)));
+}
+
+const claimers = alias(users, "claimer");
 
 export async function showcase(limit = 9) {
   return db
@@ -294,9 +358,11 @@ export async function reviewQueue(tab: "queue" | "done" = "queue"): Promise<Queu
         eligibility: users.eligibility,
         avatarUrl: users.avatarUrl,
       },
+      claimer: { id: claimers.id, displayName: claimers.displayName },
     })
     .from(ships)
     .innerJoin(users, eq(ships.userId, users.id))
+    .leftJoin(claimers, and(eq(ships.claimedBy, claimers.id), claimLive))
     .where(
       tab === "queue"
         ? or(and(eq(ships.state, "pending"), isNull(ships.verdict)), failed)

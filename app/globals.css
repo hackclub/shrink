@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* The site is light-only. Without this, dark: styles (in the shadcn parts) follow the OS setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #f3f3fa;
   --foreground: #000000;
@@ -9,12 +12,23 @@
   --card: #e8e8f8;
   --accent: #f6c201;
   --ink: #0e0f0d;
+  --brand: #f6c201;
 
   /* shadcn-style tokens the dither-kit charts read. */
   --popover: #ffffff;
   --popover-foreground: #000000;
   --muted-foreground: rgba(0, 0, 0, 0.55);
   --border: #bfbcc5;
+  --primary: #0e0f0d;
+  --primary-foreground: #ffffff;
+  --secondary: #ebebf2;
+  --secondary-foreground: #000000;
+  --muted: #ebebf2;
+  --accent-foreground: #000000;
+  --card-foreground: #000000;
+  --destructive: #c1121f;
+  --input: #d6d4dc;
+  --ring: #0e0f0d;
 
   --gutter: clamp(1.25rem, 5.36vw, 103px);
   --text-display: clamp(2rem, 3.4vw, 4rem);
@@ -33,10 +47,21 @@
   --color-card: var(--card);
   --color-accent: var(--accent);
   --color-ink: var(--ink);
+  --color-brand: var(--brand);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-card-foreground: var(--card-foreground);
+  --color-destructive: var(--destructive);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
   --font-sans: var(--font-google-sans-flex), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
   --font-ui: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "SF Pro", "Inter", system-ui, sans-serif;
@@ -626,4 +651,28 @@ textarea.input {
   filter: grayscale(1);
   opacity: 0.55;
 }
+}
+
+/* The review desk is built from shadcn parts (app/components/ui/*.tsx). Inside it,
+   cards are white, hover washes are neutral (not the brand yellow), and bare borders
+   pick up the theme border instead of currentColor. */
+.desk {
+  --card: #ffffff;
+  --accent: #ebebf2;
+  --border: #dcdae2;
+  font-family: var(--font-ui);
+}
+@layer base {
+  .desk *,
+  .desk *::before,
+  .desk *::after {
+    border-color: var(--border);
+  }
+}
+/* shadcn parts draw their own focus ring; skip the site-wide outline on top of it. */
+.desk [data-slot]:focus-visible {
+  outline: none;
+}
+.desk .app-frame {
+  background: #fff;
 }

@@ -9,7 +9,7 @@ import { actionRole } from "@/lib/server/auth/current";
 import { loadShipAndAuthor, shipDecided } from "@/lib/server/effects";
 import { requestOrigin } from "@/lib/server/origin";
 import { refresh, report } from "@/lib/server/secondary";
-import { ShipError, decide } from "@/lib/server/ships";
+import { ShipError, claim, decide, release } from "@/lib/server/ships";
 
 export type DecisionState = { error: string | null };
 
@@ -19,6 +19,7 @@ export async function decideAction(_prev: DecisionState, form: FormData): Promis
   const shipId = str("ship_id");
   const kind = str("kind");
   const nextId = str("next_id");
+  const f = /^(passed|waiting|failed|unsent)$/.test(str("f")) ? `&f=${str("f")}` : "";
 
   let held = false;
   try {
@@ -61,5 +62,16 @@ export async function decideAction(_prev: DecisionState, form: FormData): Promis
   if (!held) queueSync({ ships: [shipId] });
   revalidatePath("/", "layout");
   const done = held ? "held" : "1";
-  redirect(nextId ? `/review?s=${nextId}&decided=${done}` : `/review?decided=${done}`);
+  redirect(nextId ? `/review?s=${nextId}&decided=${done}${f}` : `/review?decided=${done}${f}`);
+}
+
+// The desk calls this on open and every minute after, to keep its hold on the ship.
+export async function claimAction(shipId: string): Promise<{ ok: true } | { ok: false; by: string }> {
+  const reviewer = await actionRole("reviewer");
+  return claim(reviewer, shipId);
+}
+
+export async function releaseAction(shipId: string): Promise<void> {
+  const reviewer = await actionRole("reviewer");
+  await release(reviewer, shipId);
 }

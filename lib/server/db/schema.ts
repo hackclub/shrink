@@ -131,6 +131,10 @@ export const ships = pgTable(
     secondaryNote: text("secondary_note"),
     secondarySeconds: bigint("secondary_seconds", { mode: "number" }),
     secondaryAt: timestamp("secondary_at", { withTimezone: true }),
+    // The reviewer who has this ship open, so two people don't review it at once.
+    // Lapses if their tab stops renewing it; see claim() in lib/server/ships.ts.
+    claimedBy: text("claimed_by").references(() => users.id),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
     createdAt: now("created_at"),
   },
   (t) => [
