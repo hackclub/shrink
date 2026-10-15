@@ -5,10 +5,10 @@ import { after } from "next/server";
 import { BADGE_BY_SLUG, hm } from "@/lib/program";
 import { activityTotals, dailyActivity, daysToRefresh, lastRefreshedAt, programDays, refreshActivity } from "@/lib/server/activity";
 import { currentUser } from "@/lib/server/auth/session";
-import { dailyCounts, funnel, overview, referrals } from "@/lib/server/stats";
+import { dailyCounts, funnel, overview, referrals, reviewStats } from "@/lib/server/stats";
 import { TZ } from "@/lib/tz";
 
-import { DauChart, FlowChart, Funnel, Glow, HoursChart } from "./Charts";
+import { DauChart, FlowChart, Funnel, Glow, HoursChart, ReviewChart } from "./Charts";
 import Refresh from "./Refresh";
 
 export const dynamic = "force-dynamic";
@@ -37,13 +37,14 @@ export default async function StatsPage() {
   const stale = daysToRefresh(last);
   if (stale.length) after(() => refreshActivity(stale).catch((e) => console.error("[activity] refresh failed", e)));
 
-  const [f, o, act, dau, flow, r] = await Promise.all([
+  const [f, o, act, dau, flow, r, rv] = await Promise.all([
     funnel(),
     overview(),
     activityTotals(days),
     dailyActivity(days),
     dailyCounts(days),
     referrals(),
+    reviewStats(days),
   ]);
 
   const steps = [
@@ -63,6 +64,8 @@ export default async function StatsPage() {
     other: Math.max(0, d.codingSeconds - d.shrinkSeconds),
   }));
   const flowData = flow.map((d) => ({ day: d.day, label: dayLabel(d.day), signups: d.signups, ships: d.ships, approved: d.approved }));
+  const reviewData = rv.daily.map((d) => ({ day: d.day, label: dayLabel(d.day), approved: d.approved, sentBack: d.sentBack }));
+  const mins = (m: number | null) => (m == null ? "—" : hm(m * 60));
   const today = dau.at(-1);
   const hero = [
     { k: "signed up", v: n(f.signedUp), sub: `${n(o.onboarded)} finished setup` },
@@ -175,6 +178,31 @@ export default async function StatsPage() {
                 ["approval rate", pct(o.ships.approved, o.ships.approved + o.ships.rejected)],
                 ["median time to review", o.reviewMedianMinutes == null ? "—" : hm(o.reviewMedianMinutes * 60)],
                 ["re-ships", n(o.ships.reships)],
+              ]}
+            />
+          </Section>
+        </div>
+
+        <div className="grid gap-[clamp(2rem,4vw,64px)]">
+          <Section title="reviews" sub="Every ship gets a human review. Calls per day, approved or sent back, and how long ships wait for one.">
+            <ReviewChart data={reviewData} />
+            <Facts
+              items={[
+                ["in the queue now", n(rv.queue)],
+                ["oldest waiting", rv.queue ? mins(rv.oldestWaitingMinutes) : "—"],
+                ["hours left to review", hm(rv.queueSeconds)],
+                ["on the second pass", n(rv.secondPass)],
+                ["ships reviewed", n(rv.decisions)],
+                ["in the last 7 days", n(rv.lastWeek)],
+                ["sent back", pct(rv.sentBack, rv.decisions)],
+                ["deflation on approvals", pct(rv.deflatedSeconds, rv.approvedClaimedSeconds)],
+                ["hours deflated", hm(rv.deflatedSeconds)],
+                ["median wait for a review", mins(rv.medianWaitMinutes)],
+                ["90% reviewed within", mins(rv.p90WaitMinutes)],
+                ["median desk time per ship", rv.medianDeskMs == null ? "—" : hm(rv.medianDeskMs / 1000)],
+                ["reviewers", n(rv.reviewers)],
+                ["secondary check passed", n(rv.checkPassed)],
+                ["secondary check failed", n(rv.checkFailed)],
               ]}
             />
           </Section>

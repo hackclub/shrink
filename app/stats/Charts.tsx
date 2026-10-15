@@ -103,6 +103,31 @@ export function FlowChart({ data }: { data: FlowPoint[] }) {
   );
 }
 
+// ---- review calls per day --------------------------------------------------------------------
+
+export type ReviewPoint = { day: string; label: string; approved: number; sentBack: number };
+
+const REVIEWS: ChartConfig = {
+  approved: { label: "approved", color: "green" },
+  sentBack: { label: "sent back", color: "orange" },
+};
+
+export function ReviewChart({ data }: { data: ReviewPoint[] }) {
+  return (
+    <Frame>
+      <BarChart data={data} config={REVIEWS} stackType="stacked" bloom="low" margins={{ left: 28, top: TOP }}>
+        <Grid />
+        <XAxis dataKey="label" />
+        <YAxis tickFormatter={whole} tickCount={4} />
+        <Bar dataKey="approved" variant="gradient" />
+        <Bar dataKey="sentBack" variant="hatched" />
+        <Tooltip labelKey="label" valueFormatter={(v) => int(v)} variant="frosted-glass" />
+        <Legend align="left" />
+      </BarChart>
+    </Frame>
+  );
+}
+
 // ---- decoration -------------------------------------------------------------------------------
 
 export function Glow({ color = "orange", className = "" }: { color?: DitherColor; className?: string }) {

@@ -191,3 +191,106 @@ export async function referrals(): Promise<Referrals> {
     approved: Number(row?.approved ?? 0),
   };
 }
+
+export type ReviewStats = {
+  decisions: number;
+  approved: number; // calls, landed or held
+  sentBack: number;
+  reviewers: number; // how many people have made a call, never who
+  lastWeek: number;
+  queue: number; // pending with no call yet
+  secondPass: number; // a call waiting on an admin
+  oldestWaitingMinutes: number | null;
+  medianWaitMinutes: number | null; // ship to first call
+  p90WaitMinutes: number | null;
+  medianDeskMs: number | null; // active desk time on a ship, by whoever decided it
+  checkPassed: number;
+  checkFailed: number;
+  // Over approval calls: what was claimed vs. what the reviewer gave.
+  approvedClaimedSeconds: number;
+  deflatedSeconds: number;
+  queueSeconds: number; // claimed time on ships still in the queue
+  daily: { day: string; approved: number; sentBack: number }[];
+};
+
+// The review desk in aggregate. A ship's call is its first one, the reviewer's,
+// held or landed, the same way the audit counts it (lib/server/audit.ts).
+export async function reviewStats(days: string[]): Promise<ReviewStats> {
+  const dayOf = sql.raw(`to_char(decided_at at time zone '${TZ}', 'YYYY-MM-DD')`);
+  const from = days.length ? dayStart(days[0]).toISOString() : new Date(0).toISOString();
+  const decisions = sql`
+    select s.id, s.created_at,
+      case when s.state = 'rejected' then s.reviewer_id else coalesce(s.verdict->>'reviewerId', s.reviewer_id) end as decider,
+      case when s.state = 'rejected' then s.reviewed_at else coalesce((s.verdict->>'at')::timestamptz, s.reviewed_at) end as decided_at,
+      s.state = 'rejected' or coalesce(s.verdict->>'kind' = 'reject', false) as sent_back,
+      s.claimed_seconds,
+      coalesce(s.awarded_seconds, (s.verdict->>'awardedSeconds')::bigint) as awarded_seconds
+    from ${ships} s
+    where s.state <> 'pending' or s.verdict is not null`;
+  const [[d], [q], daily] = await Promise.all([
+    db.execute(sql`
+      with d as (${decisions}),
+      desk as (
+        select coalesce(sum(a.active_ms), 0) as ms
+        from d join review_activity a on a.ship_id = d.id and a.user_id = d.decider
+        group by d.id
+      )
+      select
+        count(*)::int as decisions,
+        (count(*) filter (where not sent_back))::int as approved,
+        (count(*) filter (where sent_back))::int as sent_back,
+        count(distinct decider)::int as reviewers,
+        (count(*) filter (where decided_at >= now() - interval '7 days'))::int as last_week,
+        percentile_cont(0.5) within group (order by extract(epoch from (decided_at - created_at)) / 60) as median_wait,
+        percentile_cont(0.9) within group (order by extract(epoch from (decided_at - created_at)) / 60) as p90_wait,
+        (select percentile_cont(0.5) within group (order by ms) from desk where ms > 0) as median_desk,
+        coalesce(sum(claimed_seconds) filter (where not sent_back), 0)::bigint as approved_claimed,
+        coalesce(sum(greatest(claimed_seconds - awarded_seconds, 0)) filter (where not sent_back), 0)::bigint as deflated
+      from d
+    `) as Promise<Record<string, unknown>[]>,
+    db.execute(sql`
+      select
+        (count(*) filter (where ${ships.state} = 'pending' and ${ships.verdict} is null))::int as queue,
+        (count(*) filter (where ${ships.state} = 'pending' and ${ships.verdict} is not null and ${ships.verdict}->>'confirmedBy' is null))::int as second_pass,
+        coalesce(sum(${ships.claimedSeconds}) filter (where ${ships.state} = 'pending' and ${ships.verdict} is null), 0)::bigint as queue_seconds,
+        extract(epoch from (now() - min(${ships.createdAt}) filter (where ${ships.state} = 'pending' and ${ships.verdict} is null))) / 60 as oldest,
+        (count(*) filter (where ${ships.secondaryState} = 'passed'))::int as passed,
+        (count(*) filter (where ${ships.secondaryState} = 'failed'))::int as failed
+      from ${ships}
+    `) as Promise<Record<string, unknown>[]>,
+    db.execute(sql`
+      with d as (${decisions})
+      select ${dayOf} as day,
+        (count(*) filter (where not sent_back))::int as approved,
+        (count(*) filter (where sent_back))::int as sent_back
+      from d where decided_at >= ${from}::timestamptz
+      group by 1
+    `) as Promise<{ day: string; approved: number; sent_back: number }[]>,
+  ]);
+  const num = (v: unknown) => (v == null ? null : Number(v));
+  const mins = (v: unknown) => (v == null ? null : Math.round(Number(v)));
+  const byDay = new Map(daily.map((r) => [r.day, r]));
+  return {
+    decisions: Number(d?.decisions ?? 0),
+    approved: Number(d?.approved ?? 0),
+    sentBack: Number(d?.sent_back ?? 0),
+    reviewers: Number(d?.reviewers ?? 0),
+    lastWeek: Number(d?.last_week ?? 0),
+    queue: Number(q?.queue ?? 0),
+    secondPass: Number(q?.second_pass ?? 0),
+    oldestWaitingMinutes: mins(q?.oldest),
+    medianWaitMinutes: mins(d?.median_wait),
+    p90WaitMinutes: mins(d?.p90_wait),
+    medianDeskMs: num(d?.median_desk),
+    checkPassed: Number(q?.passed ?? 0),
+    checkFailed: Number(q?.failed ?? 0),
+    approvedClaimedSeconds: Number(d?.approved_claimed ?? 0),
+    deflatedSeconds: Number(d?.deflated ?? 0),
+    queueSeconds: Number(q?.queue_seconds ?? 0),
+    daily: days.map((day) => ({
+      day,
+      approved: Number(byDay.get(day)?.approved ?? 0),
+      sentBack: Number(byDay.get(day)?.sent_back ?? 0),
+    })),
+  };
+}
