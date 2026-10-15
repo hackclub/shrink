@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { AppFrame, ByteMeter, H1, Hours, PixelLink, StatePill, when } from "@/app/components/ui/bits";
-import { PROGRAM_END, PROGRAM_START } from "@/lib/program";
+import { PROGRAM_END, PROGRAM_START, instant } from "@/lib/program";
 import { requireUser } from "@/lib/server/auth/current";
 import { HCA_ADDRESSES_URL, HCA_VERIFY_URL } from "@/lib/server/auth/hca";
 import { fetchProjects } from "@/lib/server/hackatime";
@@ -17,8 +17,14 @@ import CopyLink from "./invite/CopyLink";
 import GetLink from "./invite/GetLink";
 import { BITE_LABEL } from "./invite/rules";
 
-function daysUntil(date: string): number {
-  return Math.max(0, Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000));
+// "3 days left", or hours on the last day; null once it's over.
+function timeLeft(date: string): string | null {
+  const ms = instant(date).getTime() - Date.now();
+  if (ms <= 0) return null;
+  const hours = Math.ceil(ms / 3_600_000);
+  const n = hours <= 24 ? hours : Math.ceil(ms / 86_400_000);
+  const unit = hours <= 24 ? "hour" : "day";
+  return `${n} ${unit}${n === 1 ? "" : "s"} left`;
 }
 
 function hasStarted(): boolean {
@@ -40,7 +46,7 @@ export default async function Home() {
   ]);
 
   const started = hasStarted();
-  const daysLeft = daysUntil(PROGRAM_END);
+  const left = timeLeft(PROGRAM_END);
   const tracked = (projects ?? []).reduce((s, p) => s + p.seconds, 0);
   const hasAddress = addresses === "reconnect" ? null : addresses.length > 0;
   const needsVerify = user.eligibility === "blocked_unverified" || user.eligibility === "undetermined";
@@ -88,9 +94,9 @@ export default async function Home() {
     <>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <H1>
-          {!started ? `starts ${startLabel}` : daysLeft > 0 ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : "shipping is closed"}
+          {!started ? `starts ${startLabel}` : left ?? "shipping is closed"}
         </H1>
-        {daysLeft > 0 && (
+        {left && (
           <PixelLink href="/app/ship" className="mb-[clamp(1.25rem,2vw,32px)] text-[1.1rem]">
             ship a project →
           </PixelLink>

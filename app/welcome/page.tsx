@@ -1,11 +1,11 @@
 import { PixelLink } from "@/app/components/ui/bits";
-import { MAX_URI_BYTES, PROGRAM_END, PROGRAM_START } from "@/lib/program";
+import { MAX_URI_BYTES, PROGRAM_END, PROGRAM_START, instant } from "@/lib/program";
 import { requireUser } from "@/lib/server/auth/current";
 
 import { stayInSetup } from "./guard";
 import Panel from "./Panel";
 
-const day = (d: string) => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const day = (d: string) => instant(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 const HOW = [
   { t: "build", d: `any web app, written as one data:text/html line of ${MAX_URI_BYTES.toLocaleString()} bytes or less.` },

@@ -8,7 +8,10 @@ export const MIN_SHIP_SECONDS = 30 * 60;
 export const BASE_CAP = 6;
 
 export const PROGRAM_START = process.env.NEXT_PUBLIC_PROGRAM_START ?? "2026-09-29";
-export const PROGRAM_END = process.env.NEXT_PUBLIC_PROGRAM_END ?? "2026-10-13";
+// A date ("2026-10-13", midnight starting it) or an exact instant ("2026-10-14T05:00:00Z").
+export const PROGRAM_END = process.env.NEXT_PUBLIC_PROGRAM_END ?? "2026-10-14T05:00:00Z";
+
+export const instant = (d: string): Date => new Date(/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T00:00:00` : d);
 
 export type Badge = {
   slug: string;
