@@ -4,7 +4,7 @@ import { and, desc, eq, isNotNull, isNull, ne, not, or, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core";
 
 import { blocking } from "@/lib/scan";
-import { BADGE_BY_SLUG, MAX_URI_BYTES, MIN_SHIP_SECONDS, REPO_URL, bitesFor, byteLength } from "@/lib/program";
+import { BADGE_BY_SLUG, MAX_URI_BYTES, MIN_SHIP_SECONDS, REPO_URL, bitesFor, byteLength, hm } from "@/lib/program";
 
 import { db, type Tx } from "./db/client";
 import { ships, users, type Ship, type User, type Verdict } from "./db/schema";
@@ -149,8 +149,18 @@ const secondaryLine = (ship: Ship) => `secondary check ${ship.secondaryScore ?? 
 
 const gateOpen = (ship: Ship) => !env.SECONDARY_CHECK_KEY || ship.secondaryState === "passed";
 
-// A reject lands at once. An approve is held as the ship's verdict and only lands
-// (BITES, DM, Airtable) once the secondary check has passed too; see settle().
+export const verdictKind = (v: Verdict) => v.kind ?? "approve";
+
+// A reviewer's call that an admin hasn't checked yet.
+export const awaitingCheck = (ship: Pick<Ship, "state" | "verdict">) => ship.state === "pending" && !!ship.verdict && !ship.verdict.confirmedBy;
+
+const callLine = (v: Verdict) =>
+  verdictKind(v) === "reject" ? "send back" : `approve ${hm(v.awardedSeconds)} for ${v.bites} BITES${v.badges.length ? ` with ${v.badges.join(", ")}` : ""}`;
+
+// A reviewer's call, approve or send back, is held as the ship's verdict until an
+// admin checks it on the second pass, confirming it or changing it. An admin's own
+// call needs no second pass. Once confirmed, a send-back lands at once and an
+// approval lands (BITES, DM, Airtable) once the secondary check has passed too; see settle().
 // The guards in each WHERE stop a stale tab re-deciding; the ledger key stops a double award.
 export async function decide(reviewer: User, shipId: string, decision: Decision): Promise<Ship> {
   const message = decision.message.trim();
@@ -160,29 +170,66 @@ export async function decide(reviewer: User, shipId: string, decision: Decision)
   return db.transaction(async (tx) => {
     const [ship] = await tx.select().from(ships).where(eq(ships.id, shipId)).for("update").limit(1);
     if (!ship) throw new ShipError("That ship doesn't exist.");
-    // A failed secondary check holds the ship (even one with an approval waiting) for an
+    const admin = reviewer.role === "admin";
+    // A failed secondary check holds the ship (even one with a call waiting) for an
     // admin to read the fraud squad's note and send it back. It can't be approved.
     const failed = ship.secondaryState === "failed";
-    if (ship.state !== "pending" || (ship.verdict && !failed)) throw new ShipError("Someone already decided this one.");
-    if (ship.userId === reviewer.id && reviewer.role !== "admin") throw new ShipError("You can't review your own ship.");
-    if (failed && reviewer.role !== "admin") throw new ShipError("This one failed the fraud check. Only an admin can send it back.");
+    // An admin's second pass over a reviewer's held call.
+    const check = admin && !failed && awaitingCheck(ship);
+    if (ship.state !== "pending" || (ship.verdict && !failed && !check)) throw new ShipError("Someone already decided this one.");
+    if (ship.userId === reviewer.id && !admin) throw new ShipError("You can't review your own ship.");
+    if (failed && !admin) throw new ShipError("This one failed the fraud check. Only an admin can send it back.");
     if (failed && decision.kind === "approve") throw new ShipError("This one failed the fraud check, so it can't be approved.");
-    if (!failed && !gateOpen(ship) && reviewer.role !== "admin") throw new ShipError("This one hasn't passed the secondary check yet. Only an admin can decide it now.");
+    if (!failed && !gateOpen(ship) && !admin) throw new ShipError("This one hasn't passed the secondary check yet. Only an admin can decide it now.");
     if (claimedByOther(ship, reviewer.id)) throw new ShipError("Someone else has this one open right now.");
 
+    const now = new Date().toISOString();
+    const prior = check ? ship.verdict! : null;
+    // The second pass is only a check: the call stays the reviewer's, even if the admin changed it.
+    const by = prior ? prior.reviewerId : reviewer.id;
+    // Only for an admin's decision: a reviewer's waits on the second pass.
+    const confirmed = admin ? { confirmedBy: reviewer.id, confirmedAt: now } : {};
+    // The reviewer's recording is the one their call was made in.
+    const replayId = prior && ship.replayId ? ship.replayId : (decision.replayId ?? null);
+    const changedFrom = (v: Verdict) => (prior && callLine(prior) !== callLine(v) ? `Second pass changed the reviewer's call: ${callLine(prior)}.` : null);
+    // A reviewer's call goes no further than this until an admin checks it.
+    const hold = async (verdict: Verdict) => {
+      const [held] = await tx
+        .update(ships)
+        .set({ verdict, claimedBy: null, claimedAt: null, replayId })
+        .where(and(eq(ships.id, ship.id), eq(ships.state, "pending"), check ? sql`${ships.verdict}->>'confirmedBy' is null` : isNull(ships.verdict)))
+        .returning();
+      if (!held) throw new ShipError("Someone already decided this one.");
+      return held;
+    };
+
     if (decision.kind === "reject") {
-      const note = [failed && secondaryLine(ship), ship.verdict?.internalNote, decision.internalNote.trim()].filter(Boolean).join("\n");
+      const verdict: Verdict = {
+        kind: "reject",
+        reviewerId: by,
+        at: prior ? prior.at : now,
+        awardedSeconds: 0,
+        badges: [],
+        bites: 0,
+        message,
+        internalNote: decision.internalNote.trim() || null,
+        ...confirmed,
+      };
+      if (!admin) return hold(verdict);
+      const note = [failed && secondaryLine(ship), changedFrom(verdict), ship.verdict?.internalNote, decision.internalNote.trim()].filter(Boolean).join("\n");
       const [updated] = await tx
         .update(ships)
         .set({
           state: "rejected",
-          reviewerId: reviewer.id,
+          reviewerId: by,
           reviewedAt: new Date(),
           publicMessage: message,
           internalNote: note || null,
+          // Keeps who checked it. A failed check's held approval stays as it was.
+          ...(check && { verdict: { ...verdict, internalNote: note || null } }),
           claimedBy: null,
           claimedAt: null,
-          replayId: decision.replayId ?? null,
+          replayId,
         })
         .where(and(eq(ships.id, ship.id), eq(ships.state, "pending")))
         .returning();
@@ -199,22 +246,20 @@ export async function decide(reviewer: User, shipId: string, decision: Decision)
     const badges = [...new Set(decision.badges)].filter((b) => BADGE_BY_SLUG.has(b));
     const seconds = Math.min(awardedSeconds, ship.claimedSeconds);
     const verdict: Verdict = {
-      reviewerId: reviewer.id,
-      at: new Date().toISOString(),
+      kind: "approve",
+      reviewerId: by,
+      at: prior ? prior.at : now,
       awardedSeconds: seconds,
       badges,
       bites: bitesFor(seconds, badges),
       message,
       internalNote: decision.internalNote.trim() || null,
+      ...confirmed,
     };
+    verdict.internalNote = [changedFrom(verdict), prior?.internalNote, verdict.internalNote].filter(Boolean).join("\n") || null;
 
-    const [held] = await tx
-      .update(ships)
-      .set({ verdict, claimedBy: null, claimedAt: null, replayId: decision.replayId ?? null })
-      .where(and(eq(ships.id, ship.id), eq(ships.state, "pending"), isNull(ships.verdict)))
-      .returning();
-    if (!held) throw new ShipError("Someone already decided this one.");
-    return gateOpen(held) ? approve(tx, held, verdict) : held;
+    const held = await hold(verdict);
+    return verdict.confirmedBy && gateOpen(held) ? approve(tx, held, verdict) : held;
   });
 }
 
@@ -249,14 +294,15 @@ async function approve(tx: Tx, ship: Ship, v: Verdict): Promise<Ship> {
 }
 
 // Call after the secondary check's result changes. Lands a held approval once it
-// passed. A failure decides nothing here: the ship waits in the queue for an admin
+// passed, if an admin has confirmed it. A failure decides nothing here: the ship waits in the queue for an admin
 // to confirm it (see decide()). Returns the ship only if this call decided it, so
 // the caller knows to DM and sync.
 export async function settle(shipId: string): Promise<Ship | null> {
   return db.transaction(async (tx) => {
     const [ship] = await tx.select().from(ships).where(eq(ships.id, shipId)).for("update").limit(1);
     if (!ship || ship.state !== "pending") return null;
-    if (ship.verdict && gateOpen(ship)) return approve(tx, ship, ship.verdict);
+    const v = ship.verdict;
+    if (v?.confirmedBy && verdictKind(v) === "approve" && gateOpen(ship)) return approve(tx, ship, v);
     return null;
   });
 }
@@ -346,11 +392,20 @@ export async function showcase(limit = 9) {
     .limit(limit);
 }
 
+export type QueueTab = "queue" | "done" | "check";
+
 // The queue is everything nobody has decided, with failed secondary checks first
-// (held approvals included) since they're waiting on an admin. Done includes
-// approvals still waiting on the secondary check.
-export async function reviewQueue(tab: "queue" | "done" = "queue"): Promise<QueueItem[]> {
+// (held calls included) since they're waiting on an admin. Done includes
+// calls still held for the second pass or the secondary check. Check is the admins'
+// second pass: reviewers' calls nobody has confirmed yet.
+export async function reviewQueue(tab: QueueTab = "queue"): Promise<QueueItem[]> {
   const failed = and(eq(ships.state, "pending"), eq(ships.secondaryState, "failed"));
+  const unchecked = and(
+    eq(ships.state, "pending"),
+    isNotNull(ships.verdict),
+    sql`${ships.verdict}->>'confirmedBy' is null`,
+    or(isNull(ships.secondaryState), ne(ships.secondaryState, "failed")),
+  );
   const rows = await db
     .select({
       ship: ships,
@@ -369,7 +424,9 @@ export async function reviewQueue(tab: "queue" | "done" = "queue"): Promise<Queu
     .where(
       tab === "queue"
         ? or(and(eq(ships.state, "pending"), isNull(ships.verdict)), failed)
-        : and(or(ne(ships.state, "pending"), isNotNull(ships.verdict)), not(failed!)),
+        : tab === "check"
+          ? unchecked
+          : and(or(ne(ships.state, "pending"), isNotNull(ships.verdict)), not(failed!)),
     )
     .orderBy(desc(sql`coalesce(${ships.secondaryState} = 'failed', false)`), ships.createdAt);
   await fillSlackHandles(rows.flatMap((r) => (r.claimer ? [r.author, r.claimer] : [r.author])));

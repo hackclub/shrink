@@ -125,8 +125,9 @@ export const ships = pgTable(
     publicMessage: text("public_message"),
     // Never shown to the author.
     internalNote: text("internal_note"),
-    // A reviewer's approval, held until the secondary check passes. The ship stays
-    // pending (and the author sees one review) until both are in.
+    // A reviewer's call, held until an admin confirms it and, for an approval, the
+    // secondary check passes. The ship stays pending (and the author sees one
+    // review) until all of that is in.
     verdict: jsonb("verdict").$type<Verdict>(),
     // The secondary check (lib/server/secondary.ts). Null state means not sent yet.
     secondaryId: text("secondary_id"),
@@ -342,6 +343,9 @@ export const reviewActivity = pgTable(
 );
 
 export type Verdict = {
+  // Older verdicts have no kind: they're all approvals. A send-back is only held
+  // while it waits on the second pass; it has no award.
+  kind?: "approve" | "reject";
   reviewerId: string;
   at: string;
   awardedSeconds: number;
@@ -349,6 +353,10 @@ export type Verdict = {
   bites: number;
   message: string;
   internalNote: string | null;
+  // The admin who checked it on the second pass (an admin's own call confirms
+  // itself). Nothing reaches the author until this is set; see decide() in ships.ts.
+  confirmedBy?: string;
+  confirmedAt?: string;
 };
 
 export type User = typeof users.$inferSelect;

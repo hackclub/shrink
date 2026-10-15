@@ -36,6 +36,8 @@ export default function DecisionForm({
   shipId,
   nextId,
   filter,
+  tab,
+  prior,
   claimedSeconds,
   claimedBadges,
   isOwn,
@@ -45,6 +47,9 @@ export default function DecisionForm({
   nextId: string;
   // The desk's secondary-check filter, kept across the redirect to the next ship.
   filter: string;
+  tab: string;
+  // On an admin's second pass: the reviewer's call, which the form starts from.
+  prior?: { kind: "approve" | "reject"; seconds: number; badges: string[]; message: string };
   claimedSeconds: number;
   claimedBadges: string[];
   isOwn: boolean;
@@ -54,9 +59,10 @@ export default function DecisionForm({
   const [state, action, pending] = useActionState<DecisionState, FormData>(recordedDecide, { error: null });
   const replay = useReplayStatus();
   const maxHours = Math.round((claimedSeconds / 3600) * 10) / 10;
-  const [hours, setHours] = useState(String(maxHours));
-  const [badges, setBadges] = useState<Set<string>>(new Set(claimedBadges));
-  const [kind, setKind] = useState<"approve" | "reject">(fraudMessage ? "reject" : "approve");
+  const priorHours = prior?.kind === "approve" ? Math.round((prior.seconds / 3600) * 10) / 10 : null;
+  const [hours, setHours] = useState(String(priorHours ?? maxHours));
+  const [badges, setBadges] = useState<Set<string>>(new Set(prior?.kind === "approve" ? prior.badges : claimedBadges));
+  const [kind, setKind] = useState<"approve" | "reject">(fraudMessage ? "reject" : (prior?.kind ?? "approve"));
 
   const h = Number(hours);
   const bites = Number.isFinite(h) && h > 0 ? bitesFor(Math.min(h, maxHours) * 3600, [...badges]) : 0;
@@ -69,6 +75,7 @@ export default function DecisionForm({
       <input type="hidden" name="next_id" value={nextId} />
       <input type="hidden" name="kind" value={kind} />
       <input type="hidden" name="f" value={filter} />
+      <input type="hidden" name="tab" value={tab} />
 
       <div className="flex flex-col gap-3 px-4 py-3">
         {isOwn && <p className="rounded bg-muted px-2 py-1 text-xs">Your own ship. Only an admin can decide it.</p>}
@@ -171,7 +178,7 @@ export default function DecisionForm({
           required
           rows={3}
           maxLength={2000}
-          defaultValue={fraudMessage}
+          defaultValue={fraudMessage ?? prior?.message}
           className="min-h-0 text-sm"
         />
         <Textarea name="internal_note" aria-label="Justification" placeholder="Justification (internal)" rows={2} className="min-h-0 text-sm" />
@@ -198,6 +205,7 @@ export default function DecisionForm({
           className={cn("w-full", approving && "bg-brand text-black hover:bg-brand/85")}
         >
           {pending ? <Loader2 className="animate-spin" /> : approving ? <Check /> : <Undo2 />}
+          {prior && prior.kind === kind ? "Confirm: " : ""}
           {approving ? `Approve for ${bites} BITES` : "Send it back"}
         </Button>
       </div>

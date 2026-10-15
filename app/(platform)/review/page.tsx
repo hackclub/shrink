@@ -2,7 +2,7 @@ import { requireRole } from "@/lib/server/auth/current";
 import { env } from "@/lib/server/env";
 import { fetchProjects } from "@/lib/server/hackatime";
 import { repoView } from "@/lib/server/scan";
-import { claim, reviewQueue, type QueueItem } from "@/lib/server/ships";
+import { awaitingCheck, claim, reviewQueue, type QueueItem, type QueueTab } from "@/lib/server/ships";
 import { publicName } from "@/lib/server/users";
 
 import Desk from "./Desk";
@@ -15,11 +15,13 @@ export default async function ReviewPage({
 }) {
   const reviewer = await requireRole("reviewer", "/review");
   const { s, tab, decided, f } = await searchParams;
-  const showDone = tab === "done";
-  const all = await reviewQueue(showDone ? "done" : "queue");
+  const isAdmin = reviewer.role === "admin";
+  // The second pass is admins' only.
+  const view: QueueTab = tab === "done" ? "done" : tab === "check" && isAdmin ? "check" : "queue";
+  const showDone = view === "done";
+  const all = await reviewQueue(view);
   if (showDone) all.reverse();
 
-  const isAdmin = reviewer.role === "admin";
   // Reviewers only get ships the secondary check has passed; admins can filter by it.
   const passedOnly = !isAdmin && !!env.SECONDARY_CHECK_KEY && !showDone;
   const filter = passedOnly ? "passed" : parseFilter(f);
@@ -27,7 +29,7 @@ export default async function ReviewPage({
   const heldByOther = (q: QueueItem) => !!q.claimer && q.claimer.id !== reviewer.id;
   const decidable = (q: QueueItem) =>
     q.ship.state === "pending" &&
-    (q.ship.secondaryState === "failed" ? isAdmin : !q.ship.verdict) &&
+    (q.ship.secondaryState === "failed" || awaitingCheck(q.ship) ? isAdmin : !q.ship.verdict) &&
     (q.author.id !== reviewer.id || isAdmin);
 
   const firstFree = queue.find((q) => !heldByOther(q)) ?? null;
@@ -58,7 +60,7 @@ export default async function ReviewPage({
       filter={filter}
       counts={passedOnly ? null : countBy(all)}
       current={current}
-      showDone={showDone}
+      tab={view}
       decided={decided}
       lockedBy={lockedBy}
       holder={holder}

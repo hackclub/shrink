@@ -8,7 +8,7 @@ import { BADGE_BY_SLUG, MAX_URI_BYTES, capFor } from "@/lib/program";
 import type { Check as ScanCheck } from "@/lib/scan";
 import type { RepoView } from "@/lib/server/scan";
 import type { Ship, User } from "@/lib/server/db/schema";
-import { FRAUD_MESSAGE, type QueueItem } from "@/lib/server/ships";
+import { FRAUD_MESSAGE, awaitingCheck, verdictKind, type QueueItem, type QueueTab } from "@/lib/server/ships";
 import { publicName } from "@/lib/server/users";
 import { cn } from "@/lib/utils";
 
@@ -27,7 +27,8 @@ export type DeskProps = {
   // Per-filter counts; null hides the filter (reviewers, who only see passed ships).
   counts: Record<SecondaryFilter, number> | null;
   current: QueueItem | null;
-  showDone: boolean;
+  // "check" is the admins' second pass over reviewers' calls.
+  tab: QueueTab;
   decided?: string;
   lockedBy: string | null;
   holder: (q: QueueItem) => string | null;
@@ -40,17 +41,18 @@ export type DeskProps = {
 
 // The desk itself, with no data fetching of its own, so it can be previewed with fake ships.
 // On wide screens it fills the viewport: queue, workspace and inspector each scroll on their own.
-export default function Desk({ base = "/review", reviewer, queue, filter, counts, current, showDone, decided, lockedBy, holder, next, elsewhere, live, repo }: DeskProps) {
+export default function Desk({ base = "/review", reviewer, queue, filter, counts, current, tab, decided, lockedBy, holder, next, elsewhere, live, repo }: DeskProps) {
   const isAdmin = reviewer.role === "admin";
-  const query = (p: { s?: string; tab?: boolean; f?: SecondaryFilter }) => {
+  const showDone = tab === "done";
+  const query = (p: { s?: string; tab?: QueueTab; f?: SecondaryFilter }) => {
     const q = new URLSearchParams();
     if (p.s) q.set("s", p.s);
-    if (p.tab) q.set("tab", "done");
+    if (p.tab && p.tab !== "queue") q.set("tab", p.tab);
     if (p.f && p.f !== "all") q.set("f", p.f);
     const str = q.toString();
     return str ? `${base}?${str}` : base;
   };
-  const href = (id: string) => query({ s: id, tab: showDone, f: filter });
+  const href = (id: string) => query({ s: id, tab, f: filter });
   const idx = current ? queue.findIndex((q) => q.ship.id === current.ship.id) : -1;
   const prevHref = idx > 0 ? href(queue[idx - 1].ship.id) : null;
   const nextHref = idx >= 0 && idx < queue.length - 1 ? href(queue[idx + 1].ship.id) : null;
@@ -60,10 +62,15 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
       {/* Queue */}
       <aside className="flex min-h-0 flex-col border-b lg:border-r lg:border-b-0">
         <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
-          <TabLink href={query({ f: filter })} active={!showDone}>
+          <TabLink href={query({ f: filter })} active={tab === "queue"}>
             Queue
           </TabLink>
-          <TabLink href={query({ tab: true, f: filter })} active={showDone}>
+          {isAdmin && (
+            <TabLink href={query({ tab: "check", f: filter })} active={tab === "check"}>
+              Second pass
+            </TabLink>
+          )}
+          <TabLink href={query({ tab: "done", f: filter })} active={showDone}>
             Decided
           </TabLink>
           <span className="ml-auto pr-1 font-mono text-xs text-muted-foreground">{queue.length}</span>
@@ -73,7 +80,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
             {SECONDARY_FILTERS.map((x) => (
               <Link
                 key={x}
-                href={query({ tab: showDone, f: x })}
+                href={query({ tab, f: x })}
                 prefetch={false}
                 aria-current={filter === x ? "true" : undefined}
                 title={x === "all" ? "Every ship" : `Secondary check: ${FILTER_LABEL[x].toLowerCase()}`}
@@ -95,6 +102,8 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
               ? `Nothing with the secondary check ${FILTER_LABEL[filter].toLowerCase()}.`
               : showDone
                 ? "Nothing decided yet."
+                : tab === "check"
+                  ? "Nothing waiting on a second pass."
                 : !counts
                   ? "Empty. Ships show up here once the secondary check passes them."
                   : "Queue's empty."}
@@ -108,7 +117,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
                 <li key={q.ship.id} className="border-b last:border-b-0">
                   <QueueLink href={href(q.ship.id)} active={active} dimmed={!!by && !active}>
                     <span className="flex items-baseline gap-2">
-                      {counts && filter === "all" && !showDone && <SecondaryDot ship={q.ship} />}
+                      {counts && filter === "all" && tab !== "done" && <SecondaryDot ship={q.ship} />}
                       <span className="min-w-0 flex-1 truncate font-medium">{q.ship.title}</span>
                       <span className="font-mono text-xs text-muted-foreground">#{q.ship.number}</span>
                     </span>
@@ -123,7 +132,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
                           publicName(q.author)
                         )}
                       </span>
-                      {showDone || q.ship.secondaryState === "failed" ? <StateText ship={q.ship} /> : <Hours seconds={q.ship.claimedSeconds} />}
+                      {tab !== "queue" || q.ship.secondaryState === "failed" ? <StateText ship={q.ship} isAdmin={isAdmin} /> : <Hours seconds={q.ship.claimedSeconds} />}
                     </span>
                   </QueueLink>
                 </li>
@@ -167,7 +176,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
                 )}
               </span>
               <span className="ml-auto flex items-center gap-3">
-                <StateText ship={current.ship} />
+                <StateText ship={current.ship} isAdmin={isAdmin} />
                 {current.ship.sourceUrl && (
                   <ExtLink href={current.ship.sourceUrl} className="text-xs">
                     {current.ship.sourceUrl.replace(/^https:\/\/(www\.)?/, "").replace(/^github\.com\//, "")}
@@ -227,7 +236,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
               </div>
             </Block>
 
-            <Outcome base={base} filter={filter} current={current} reviewer={reviewer} lockedBy={lockedBy} next={next} elsewhere={elsewhere} isAdmin={isAdmin} />
+            <Outcome base={base} filter={filter} tab={tab} current={current} reviewer={reviewer} lockedBy={lockedBy} next={next} elsewhere={elsewhere} isAdmin={isAdmin} />
           </aside>
         </>
       )}
@@ -240,6 +249,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
 function Outcome({
   base,
   filter,
+  tab,
   current,
   reviewer,
   lockedBy,
@@ -249,6 +259,7 @@ function Outcome({
 }: {
   base: string;
   filter: SecondaryFilter;
+  tab: QueueTab;
   current: QueueItem;
   reviewer: User;
   lockedBy: string | null;
@@ -285,15 +296,25 @@ function Outcome({
     );
   }
 
-  if (ship.state === "pending" && (failed || !ship.verdict)) {
+  // The second pass: the reviewer's call, prefilled, for an admin to confirm or change.
+  const check = isAdmin && !failed && awaitingCheck(ship) ? ship.verdict : null;
+  if (ship.state === "pending" && (failed || !ship.verdict || check)) {
     return (
       <>
         {(author.id !== reviewer.id || isAdmin) && <ClaimKeeper shipId={ship.id} />}
+        {check && (
+          <Block label={`Reviewer's call · ${when(new Date(check.at))}`}>
+            <p className="text-xs text-muted-foreground">Confirm it as is, or change anything before it goes out. The author hears nothing until you do.</p>
+            {check.internalNote && <p className="mt-1.5 leading-relaxed whitespace-pre-wrap text-muted-foreground">{check.internalNote}</p>}
+          </Block>
+        )}
         <DecisionForm
           key={ship.id}
           shipId={ship.id}
           nextId={next?.ship.id ?? ""}
           filter={filter}
+          tab={tab}
+          prior={check ? { kind: verdictKind(check), seconds: check.awardedSeconds, badges: check.badges, message: check.message } : undefined}
           claimedSeconds={ship.claimedSeconds}
           claimedBadges={ship.claimedBadges}
           isOwn={author.id === reviewer.id && !isAdmin}
@@ -314,7 +335,7 @@ function Outcome({
           message: ship.publicMessage,
           note: ship.internalNote,
         };
-  const approved = ship.state === "approved" || ship.state === "pending";
+  const approved = ship.state === "approved" || (ship.state === "pending" && !!ship.verdict && verdictKind(ship.verdict) === "approve");
 
   return (
     <>
@@ -331,10 +352,14 @@ function Outcome({
             </p>
           </div>
         ) : (
-          <StateText ship={ship} />
+          <StateText ship={ship} isAdmin={isAdmin} />
         )}
-        {ship.state === "pending" && (
-          <p className="mt-2 text-xs text-muted-foreground">Held: the author sees it as in review until the secondary check passes. If it fails, it comes back for an admin.</p>
+        {ship.state === "pending" && (isAdmin || !awaitingCheck(ship)) && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {awaitingCheck(ship)
+              ? "Held: the author sees it as in review until an admin gives it a second pass."
+              : "Held: the author sees it as in review until the secondary check passes. If it fails, it comes back for an admin."}
+          </p>
         )}
       </Block>
       <Block label="Message to the author">
@@ -418,18 +443,23 @@ function ExtLink({ href, className, children }: { href: string; className?: stri
   );
 }
 
-// "Approved" here would be a lie until the held approval lands.
-function StateText({ ship }: { ship: Ship }) {
+// "Approved" here would be a lie until the held approval lands. Reviewers never see
+// the second pass: to them a call waiting on it reads as done.
+function StateText({ ship, isAdmin }: { ship: Ship; isAdmin: boolean }) {
   const [label, tone] =
     ship.state === "pending" && ship.secondaryState === "failed"
       ? ["Fraud", "text-destructive"]
-      : ship.state === "pending" && ship.verdict
-        ? ["Held", "text-amber-700"]
-        : ship.state === "approved"
-          ? ["Approved", "text-emerald-700"]
-          : ship.state === "rejected"
-            ? ["Sent back", "text-muted-foreground"]
-            : ["In review", "text-muted-foreground"];
+      : awaitingCheck(ship)
+        ? verdictKind(ship.verdict!) === "reject"
+          ? [isAdmin ? "Send back?" : "Sent back", isAdmin ? "text-amber-700" : "text-muted-foreground"]
+          : [isAdmin ? "Approve?" : "Approved", isAdmin ? "text-amber-700" : "text-emerald-700"]
+        : ship.state === "pending" && ship.verdict
+          ? ["Held", "text-amber-700"]
+          : ship.state === "approved"
+            ? ["Approved", "text-emerald-700"]
+            : ship.state === "rejected"
+              ? ["Sent back", "text-muted-foreground"]
+              : ["In review", "text-muted-foreground"];
   return <span className={cn("text-xs font-medium", tone)}>{label}</span>;
 }
 

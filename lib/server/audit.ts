@@ -7,8 +7,9 @@ import { FAST_REVIEW_MS } from "@/lib/review-time";
 import { db } from "./db/client";
 
 // The review audit (app/(platform)/admin/audit). A decision belongs to whoever made
-// the call: the approver of a held or landed approval (verdict), or the reviewer who
-// sent it back. Time is active time from review_activity (see lib/review-time.ts).
+// the call: the reviewer of a held or landed call (verdict), or whoever sent it back.
+// An admin's second pass leaves the call the reviewer's, even one they changed.
+// Time is active time from review_activity (see lib/review-time.ts).
 
 export const RANGES = { "7d": 7, "30d": 30, "90d": 90, all: null } as const;
 export type Range = keyof typeof RANGES;
@@ -24,7 +25,8 @@ const DECISIONS = sql`
     s.id as ship_id,
     case when s.state = 'rejected' then s.reviewer_id else coalesce(s.verdict->>'reviewerId', s.reviewer_id) end as decider,
     case when s.state = 'rejected' then s.reviewed_at else coalesce((s.verdict->>'at')::timestamptz, s.reviewed_at) end as decided_at,
-    case when s.state = 'rejected' then 'sent back' when s.state = 'approved' then 'approved' else 'approved, held' end as kind
+    case when s.state = 'rejected' then 'sent back' when s.state = 'approved' then 'approved'
+      when s.verdict->>'kind' = 'reject' then 'sent back, held' else 'approved, held' end as kind
   from ships s
   where s.state <> 'pending' or s.verdict is not null`;
 
@@ -61,8 +63,8 @@ export async function reviewerSummaries(range: Range): Promise<ReviewerSummary[]
     per as (
       select decider as id,
         count(*) as decisions,
-        count(*) filter (where kind <> 'sent back') as approved,
-        count(*) filter (where kind = 'sent back') as sent_back,
+        count(*) filter (where kind like 'approved%') as approved,
+        count(*) filter (where kind like 'sent back%') as sent_back,
         sum(ms) as review_ms,
         percentile_cont(0.5) within group (order by ms) as median_ms,
         count(*) filter (where ms < ${FAST_REVIEW_MS}) as fast,
@@ -118,7 +120,7 @@ export type AuditDecision = {
   number: number;
   title: string;
   author: string;
-  kind: "approved" | "approved, held" | "sent back";
+  kind: "approved" | "approved, held" | "sent back" | "sent back, held";
   decidedAt: Date;
   claimedSeconds: number;
   awardedSeconds: number | null;

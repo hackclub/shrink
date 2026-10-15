@@ -11,7 +11,7 @@ import { requestOrigin } from "@/lib/server/origin";
 import { replayLive } from "@/lib/server/replay";
 import { refresh, report } from "@/lib/server/secondary";
 import { repoFile } from "@/lib/server/scan";
-import { ShipError, claim, decide, release, shipById } from "@/lib/server/ships";
+import { ShipError, awaitingCheck, claim, decide, release, shipById } from "@/lib/server/ships";
 
 export type DecisionState = { error: string | null };
 
@@ -22,12 +22,15 @@ export async function decideAction(_prev: DecisionState, form: FormData): Promis
   const kind = str("kind");
   const nextId = str("next_id");
   const f = /^(passed|waiting|failed|unsent)$/.test(str("f")) ? `&f=${str("f")}` : "";
+  const tab = str("tab") === "check" ? "&tab=check" : "";
   const replayId = str("replay_id");
   if (!(await replayLive(reviewer.id, replayId).catch(() => false))) {
     return { error: "Nothing was decided: this desk's recording hasn't reached the server. Reload the page and try again." };
   }
 
+  // held: an approval waiting on the secondary check. check: a reviewer's call waiting on an admin.
   let held = false;
+  let check = false;
   try {
     if (kind === "approve") {
       const ship = await decide(reviewer, shipId, {
@@ -38,9 +41,11 @@ export async function decideAction(_prev: DecisionState, form: FormData): Promis
         internalNote: str("internal_note"),
         replayId,
       });
-      held = ship.state === "pending";
+      check = awaitingCheck(ship);
+      held = !check && ship.state === "pending";
     } else if (kind === "reject") {
-      await decide(reviewer, shipId, { kind: "reject", message: str("message"), internalNote: str("internal_note"), replayId });
+      const ship = await decide(reviewer, shipId, { kind: "reject", message: str("message"), internalNote: str("internal_note"), replayId });
+      check = awaitingCheck(ship);
     } else {
       return { error: "Pick approve or send back." };
     }
@@ -49,6 +54,13 @@ export async function decideAction(_prev: DecisionState, form: FormData): Promis
     console.error("[review] failed", e);
     return { error: "Something broke on our side. Nothing was decided. Try again." };
   }
+
+  // To the reviewer it went through: the second pass is admins' business.
+  const done = held ? "held" : "1";
+  const to = (id: string) => (id ? `/review?s=${id}&decided=${done}${f}${tab}` : `/review?decided=${done}${f}${tab}`);
+  revalidatePath("/", "layout");
+  // Nothing goes out until an admin confirms it.
+  if (check) redirect(to(nextId));
 
   const origin = await requestOrigin();
   after(async () => {
@@ -67,9 +79,7 @@ export async function decideAction(_prev: DecisionState, form: FormData): Promis
     }
   });
   if (!held) queueSync({ ships: [shipId] });
-  revalidatePath("/", "layout");
-  const done = held ? "held" : "1";
-  redirect(nextId ? `/review?s=${nextId}&decided=${done}${f}` : `/review?decided=${done}${f}`);
+  redirect(to(nextId));
 }
 
 // The desk calls this on open and every minute after, to keep its hold on the ship.
