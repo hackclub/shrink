@@ -22,5 +22,5 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 export default async function PlayPage(props: Props) {
   const ship = await load(props);
   if (!ship) notFound();
-  return <AppFrame uri={ship.dataUri} title={ship.title} className="fixed inset-0 h-full w-full border-0 bg-white" />;
+  return <AppFrame uri={ship.dataUri} title={ship.title} className="fixed inset-0 h-full w-full border-0 bg-white" interactive />;
 }

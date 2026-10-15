@@ -2,7 +2,7 @@
 
 import { Check, Copy, Loader2, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState, useTransition } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { AppFrame, decodeHtml } from "@/app/components/ui/bits";
 import type { RepoView } from "@/lib/server/scan";
@@ -66,6 +66,24 @@ export default function Workspace({
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  // The pane can still be 0×0 when the frame would first load (styles streaming in, a client
+  // navigation mid-layout), and an app that reads innerWidth once at startup then draws on a
+  // 0×0 canvas, or throws, and never recovers. Hold the frame back until the pane has a size.
+  const pane = useRef<HTMLDivElement>(null);
+  const [sized, setSized] = useState(false);
+  useEffect(() => {
+    const el = pane.current;
+    if (!el || sized) return;
+    const check = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) setSized(true);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sized]);
+
   useEffect(() => {
     if (!copied) return;
     const t = setTimeout(() => setCopied(false), 1500);
@@ -125,8 +143,8 @@ export default function Workspace({
 
       <div className="relative min-h-0 flex-1">
         {/* Kept mounted so switching tabs doesn't restart the app. */}
-        <div className={cn("absolute inset-0 bg-white", tab !== "preview" && "invisible")}>
-          <AppFrame key={run} uri={uri} title={title} className="size-full" />
+        <div ref={pane} className={cn("absolute inset-0 bg-white", tab !== "preview" && "invisible")}>
+          {sized && <AppFrame key={run} uri={uri} title={title} className="size-full" interactive focus={tab === "preview"} />}
         </div>
         {tab === "source" && (
           <div className="absolute inset-0 flex flex-col">
