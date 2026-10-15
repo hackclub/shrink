@@ -1,17 +1,15 @@
 "use client";
 
-import { AlertCircle, Check, Loader2, Undo2 } from "lucide-react";
+import { Check, Loader2, Undo2 } from "lucide-react";
 import { useActionState, useState } from "react";
 
-import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { Button } from "@/app/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Checkbox } from "@/app/components/ui/checkbox";
 import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
-import { Tabs, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
 import { Textarea } from "@/app/components/ui/textarea";
 import { BADGES, BASE_CAP, bitesFor, capFor } from "@/lib/program";
+import { cn } from "@/lib/utils";
 
 import { decideAction, type DecisionState } from "./actions";
 
@@ -46,59 +44,38 @@ export default function DecisionForm({
   const approving = kind === "approve";
 
   return (
-    <Card className="gap-0 py-0">
-      <form action={action}>
-        <input type="hidden" name="ship_id" value={shipId} />
-        <input type="hidden" name="next_id" value={nextId} />
-        <input type="hidden" name="kind" value={kind} />
-        <input type="hidden" name="f" value={filter} />
+    <form action={action} className="flex flex-1 flex-col">
+      <input type="hidden" name="ship_id" value={shipId} />
+      <input type="hidden" name="next_id" value={nextId} />
+      <input type="hidden" name="kind" value={kind} />
+      <input type="hidden" name="f" value={filter} />
 
-        <CardHeader className="border-b py-4 [.border-b]:pb-4">
-          <CardTitle>{fraudMessage ? "Send back for fraud" : "Decision"}</CardTitle>
-          <CardDescription>
-            {fraudMessage
-              ? "The fraud check failed this one. Read the note, edit the message if needed, and send it back. The author sees it as in review until you do."
-              : "Approve with hours and badges, or send it back with what to fix."}
-          </CardDescription>
-        </CardHeader>
+      <div className="flex flex-col gap-3 px-4 py-3">
+        {isOwn && <p className="rounded bg-muted px-2 py-1 text-xs">Your own ship. Only an admin can decide it.</p>}
 
-        <CardContent className="flex flex-col gap-5 py-5">
-          {isOwn && (
-            <Alert>
-              <AlertCircle />
-              <AlertDescription>This is your own ship. Only an admin can decide it.</AlertDescription>
-            </Alert>
-          )}
+        {fraudMessage ? (
+          <p className="text-xs text-destructive">
+            <span className="font-medium">Fraud check failed.</span> Read the note above, edit the message if needed, and send it back.
+          </p>
+        ) : (
+          <div role="radiogroup" aria-label="Decision" className="grid grid-cols-2 gap-1 rounded-md bg-muted p-0.5">
+            <Seg active={approving} onClick={() => setKind("approve")}>
+              <Check className="size-3.5" /> Approve
+            </Seg>
+            <Seg active={!approving} onClick={() => setKind("reject")}>
+              <Undo2 className="size-3.5" /> Send back
+            </Seg>
+          </div>
+        )}
 
-          {!fraudMessage && (
-            <Tabs value={kind} onValueChange={(v) => setKind(v as "approve" | "reject")}>
-              <TabsList className="w-full">
-                <TabsTrigger value="approve" className="data-[state=active]:bg-white">
-                  <Check />
-                  Approve
-                </TabsTrigger>
-                <TabsTrigger value="reject" className="data-[state=active]:bg-white">
-                  <Undo2 />
-                  Send back
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          )}
-
-          {approving && (
-            <>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-baseline justify-between">
-                    <Label htmlFor="hours">Hours to award</Label>
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                      onClick={() => setHours(String(maxHours))}
-                    >
-                      max {maxHours}h
-                    </button>
-                  </div>
+        {approving && (
+          <>
+            <div className="flex items-end gap-3">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="hours" className="text-xs font-normal text-muted-foreground">
+                  Hours
+                </Label>
+                <div className="flex items-center gap-1.5">
                   <Input
                     id="hours"
                     name="hours"
@@ -109,93 +86,112 @@ export default function DecisionForm({
                     required
                     value={hours}
                     onChange={(e) => setHours(e.target.value)}
-                    className="font-mono"
+                    className="h-8 w-20 font-mono"
                   />
-                </div>
-                <div className="rounded-md bg-muted px-3 py-1.5 text-right">
-                  <p className="font-mono text-xl leading-tight font-semibold tabular-nums">{bites}</p>
-                  <p className="text-xs text-muted-foreground">
-                    BITES · cap {cap}
-                    {cap > BASE_CAP && ` (${BASE_CAP}+${cap - BASE_CAP})`}
-                  </p>
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                    onClick={() => setHours(String(maxHours))}
+                  >
+                    of {maxHours}
+                  </button>
                 </div>
               </div>
+              <p className="ml-auto text-right leading-tight">
+                <span className="font-mono text-xl font-semibold tabular-nums">{bites}</span>
+                <span className="block text-xs text-muted-foreground">
+                  BITES · cap {cap}
+                  {cap > BASE_CAP && ` (${BASE_CAP}+${cap - BASE_CAP})`}
+                </span>
+              </p>
+            </div>
 
-              <fieldset className="flex flex-col gap-2">
-                <legend className="mb-2 text-sm font-medium">Badges earned</legend>
-                <div className="grid grid-cols-1 gap-2">
-                  {BADGES.map((b) => {
-                    const id = `badge-${b.slug}`;
-                    return (
-                      <Label
-                        key={b.slug}
-                        htmlFor={id}
-                        className="flex cursor-pointer items-center gap-2.5 rounded-md border px-3 py-2 font-normal hover:bg-muted/60 has-[[data-state=checked]]:border-primary"
-                      >
-                        <Checkbox
-                          id={id}
-                          name="badge"
-                          value={b.slug}
-                          checked={badges.has(b.slug)}
-                          onCheckedChange={() => {
-                            const n = new Set(badges);
-                            if (n.has(b.slug)) n.delete(b.slug);
-                            else n.add(b.slug);
-                            setBadges(n);
-                          }}
-                        />
-                        <span className="min-w-0 flex-1 truncate">{b.title}</span>
-                        <span className="font-mono text-xs text-muted-foreground">+{b.bites}</span>
+            <fieldset>
+              <legend className="mb-1 text-xs text-muted-foreground">
+                Badges <span className="opacity-70">· • = claimed</span>
+              </legend>
+              <div className="grid grid-cols-2 gap-x-4">
+                {BADGES.map((b) => {
+                  const id = `badge-${b.slug}`;
+                  return (
+                    <Label key={b.slug} htmlFor={id} className="flex cursor-pointer items-center gap-2 rounded py-1 text-sm font-normal">
+                      <Checkbox
+                        id={id}
+                        name="badge"
+                        value={b.slug}
+                        checked={badges.has(b.slug)}
+                        onCheckedChange={() => {
+                          const n = new Set(badges);
+                          if (n.has(b.slug)) n.delete(b.slug);
+                          else n.add(b.slug);
+                          setBadges(n);
+                        }}
+                      />
+                      <span className="min-w-0 flex-1 truncate">
+                        {b.title}
                         {claimedBadges.includes(b.slug) && (
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-[0.65rem] font-medium text-muted-foreground">claimed</span>
+                          <span className="ml-1 text-muted-foreground" title="Claimed by the author">
+                            •
+                          </span>
                         )}
-                      </Label>
-                    );
-                  })}
-                </div>
-              </fieldset>
-            </>
-          )}
+                      </span>
+                      <span className="font-mono text-xs text-muted-foreground">+{b.bites}</span>
+                    </Label>
+                  );
+                })}
+              </div>
+            </fieldset>
+          </>
+        )}
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="message">Message to the author</Label>
-            <Textarea
-              id="message"
-              name="message"
-              required
-              rows={4}
-              maxLength={2000}
-              defaultValue={fraudMessage}
-            />
-            <p className="text-xs text-muted-foreground">They get this in a Slack DM.</p>
-          </div>
+        <Textarea
+          name="message"
+          aria-label="Message to the author"
+          placeholder={approving ? "Message to the author (Slack DM)" : "What to fix (Slack DM to the author)"}
+          required
+          rows={3}
+          maxLength={2000}
+          defaultValue={fraudMessage}
+          className="min-h-0 text-sm"
+        />
+        <Textarea name="internal_note" aria-label="Justification" placeholder="Justification (internal)" rows={2} className="min-h-0 text-sm" />
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="internal_note">Justification</Label>
-            <Textarea id="internal_note" name="internal_note" rows={2} />
-          </div>
+        {state.error && (
+          <p role="alert" className="text-xs font-medium text-destructive">
+            {state.error}
+          </p>
+        )}
+      </div>
 
-          {state.error && (
-            <Alert variant="destructive">
-              <AlertCircle />
-              <AlertDescription>{state.error}</AlertDescription>
-            </Alert>
-          )}
-        </CardContent>
+      {/* Pinned, so the button is reachable however long the inspector gets. */}
+      <div className="sticky bottom-0 mt-auto border-t bg-white px-4 py-3">
+        <Button
+          type="submit"
+          disabled={pending || isOwn}
+          variant={approving ? "default" : "destructive"}
+          className={cn("w-full", approving && "bg-brand text-black hover:bg-brand/85")}
+        >
+          {pending ? <Loader2 className="animate-spin" /> : approving ? <Check /> : <Undo2 />}
+          {approving ? `Approve for ${bites} BITES` : "Send it back"}
+        </Button>
+      </div>
+    </form>
+  );
+}
 
-        <CardFooter className="border-t py-4 [.border-t]:pt-4">
-          <Button
-            type="submit"
-            size="lg"
-            disabled={pending || isOwn}
-            variant={approving ? "default" : "destructive"}
-            className={`w-full ${approving ? "bg-brand text-black hover:bg-brand/85" : ""}`}
-          >
-            {pending ? <Loader2 className="animate-spin" /> : approving ? <Check /> : <Undo2 />}
-            {approving ? `Approve for ${bites} BITES` : "Send it back"}
-          </Button>
-        </CardFooter>
-      </form>
-    </Card>
+function Seg({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-7 items-center justify-center gap-1.5 rounded text-xs font-medium transition-colors",
+        active ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
   );
 }

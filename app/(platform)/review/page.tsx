@@ -46,13 +46,9 @@ export default async function ReviewPage({
   const next = idx >= 0 ? (queue.slice(idx + 1).find((q) => !heldByOther(q)) ?? null) : null;
   const elsewhere = queue.find((q) => q.ship.id !== current?.ship.id && !heldByOther(q)) ?? null;
 
-  const [live, repo] = await Promise.all([
-    current && !showDone ? fetchProjects(current.author.id).catch(() => null) : null,
-    current?.ship.sourceUrl ? repoView(current.ship.sourceUrl) : null,
-  ]);
-  const liveSeconds = live
-    ? live.filter((p) => current!.ship.hackatimeProjects.includes(p.name)).reduce((a, p) => a + p.seconds, 0)
-    : null;
+  // Hackatime and GitHub are the slow parts; the desk renders without them and they stream in.
+  const live = current && !showDone ? fetchProjects(current.author.id).catch(() => null) : Promise.resolve(null);
+  const repo = current?.ship.sourceUrl ? repoView(current.ship.sourceUrl).catch(() => null) : Promise.resolve(null);
 
   return (
     <Desk
@@ -68,7 +64,6 @@ export default async function ReviewPage({
       next={next}
       elsewhere={elsewhere}
       live={live}
-      liveSeconds={liveSeconds}
       repo={repo}
     />
   );

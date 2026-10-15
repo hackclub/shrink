@@ -71,7 +71,7 @@ const FRAME_CSP = [
   "base-uri 'none'",
 ].join("; ");
 
-function decodeHtml(uri: string): string {
+export function decodeHtml(uri: string): string {
   const comma = uri.indexOf(",");
   if (comma < 0) return "";
   const head = uri.slice(0, comma);

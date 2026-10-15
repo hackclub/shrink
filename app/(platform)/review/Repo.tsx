@@ -1,14 +1,12 @@
 "use client";
 
 import { BookOpen, ChevronRight, ExternalLink, File, Folder, FolderOpen, Loader2 } from "lucide-react";
-import { useMemo, useState, useTransition } from "react";
+import { use, useMemo, useState, useTransition } from "react";
 import Markdown, { type Components } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
-import { Card } from "@/app/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
 import type { RepoView } from "@/lib/server/scan";
 import { cn } from "@/lib/utils";
 
@@ -21,29 +19,25 @@ const IMAGE = /\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)$/i;
 const MARKDOWN = /\.(md|markdown|mdx)$/i;
 
 // README and a file browser for the ship's repo, so reviewers can read the code without leaving the desk.
-export default function Repo({ shipId, repo }: { shipId: string; repo: RepoView }) {
-  if (repo.kind !== "github") {
-    return (
-      <Card className="gap-0 py-0">
-        <Header />
-        <p className="px-4 py-6 text-sm text-muted-foreground">{repo.why}</p>
-      </Card>
-    );
-  }
-  return <Browser key={`${shipId}@${repo.ref}`} shipId={shipId} repo={repo} />;
+// The view streams in; the workspace shows its own fallback until it lands.
+export function RepoPanes({
+  shipId,
+  repo,
+  tab,
+  onOpenFile,
+}: {
+  shipId: string;
+  repo: Promise<RepoView | null>;
+  tab: "readme" | "files";
+  onOpenFile: () => void;
+}) {
+  const view = use(repo);
+  if (!view) return <p className="m-auto px-4 text-center text-muted-foreground">GitHub didn&rsquo;t answer. Try again in a bit.</p>;
+  if (view.kind !== "github") return <p className="m-auto px-4 text-center text-muted-foreground">{view.why}</p>;
+  return <Browser key={`${shipId}@${view.ref}`} shipId={shipId} repo={view} tab={tab} onOpenFile={onOpenFile} />;
 }
 
-function Header({ children }: { children?: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
-      <span className="text-sm font-medium">Repo</span>
-      {children}
-    </div>
-  );
-}
-
-function Browser({ shipId, repo }: { shipId: string; repo: Gh }) {
-  const [tab, setTab] = useState(repo.readme ? "readme" : "files");
+function Browser({ shipId, repo, tab, onOpenFile }: { shipId: string; repo: Gh; tab: "readme" | "files"; onOpenFile: () => void }) {
   const [open, setOpen] = useState<string | null>(null);
   const [files, setFiles] = useState<Record<string, { text: string } | { error: string }>>({});
   const [pending, start] = useTransition();
@@ -53,7 +47,7 @@ function Browser({ shipId, repo }: { shipId: string; repo: Gh }) {
   const blob = (path: string) => `${repo.url}/blob/${repo.ref}/${path.split("/").map(encodeURIComponent).join("/")}`;
 
   const show = (path: string) => {
-    setTab("files");
+    onOpenFile();
     setOpen(path);
     if (files[path] || IMAGE.test(path)) return;
     start(async () => {
@@ -63,64 +57,53 @@ function Browser({ shipId, repo }: { shipId: string; repo: Gh }) {
   };
 
   return (
-    <Card className="gap-0 overflow-hidden py-0">
-      <Tabs value={tab} onValueChange={setTab} className="gap-0">
-        <Header>
-          <TabsList className="h-8">
-            <TabsTrigger value="readme" disabled={!repo.readme}>
-              README
-            </TabsTrigger>
-            <TabsTrigger value="files">
-              Files <span className="font-mono text-xs text-muted-foreground">{repo.files.length}</span>
-            </TabsTrigger>
-          </TabsList>
-        </Header>
-        <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
-          <span className="truncate font-mono">
-            {repo.owner}/{repo.repo}
-            {repo.ref !== "HEAD" && <span title={repo.ref}> @ {repo.ref.slice(0, 7)}</span>}
-          </span>
-          <span className="shrink-0 max-sm:hidden">Latest commit, not necessarily what was shipped</span>
-        </div>
+    <>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+        <span className="truncate font-mono">
+          {repo.owner}/{repo.repo}
+          {repo.ref !== "HEAD" && <span title={repo.ref}> @ {repo.ref.slice(0, 7)}</span>}
+          <span className="font-sans"> · {repo.files.length} files</span>
+        </span>
+        <span className="shrink-0 max-sm:hidden">Latest commit, not necessarily what was shipped</span>
+      </div>
 
-        <TabsContent value="readme">
-          {repo.readme && (
-            <div className="max-h-[70svh] overflow-y-auto px-6 py-5">
+      {tab === "readme" ? (
+        !repo.readme ? (
+          <p className="m-auto text-muted-foreground">No README.</p>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="max-w-[80ch] px-6 py-5">
               {MARKDOWN.test(readmePath) ? (
                 <Readme text={repo.readme} base={readmePath} paths={paths} raw={raw} blob={blob} show={show} />
               ) : (
                 <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap">{repo.readme}</pre>
               )}
             </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="files">
-          {repo.files.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-muted-foreground">The repo has no files.</p>
-          ) : (
-            <div className="grid h-[70svh] grid-cols-1 grid-rows-[12rem_minmax(0,1fr)] md:grid-cols-[240px_minmax(0,1fr)] md:grid-rows-1">
-              <Tree files={repo.files} open={open} onOpen={show} />
-              <div className="flex min-h-0 min-w-0 flex-col border-t md:border-t-0 md:border-l">
-                {!open ? (
-                  <p className="m-auto text-sm text-muted-foreground">Pick a file.</p>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5">
-                      <span className="truncate font-mono text-xs">{open}</span>
-                      <a href={blob(open)} target="_blank" rel="noreferrer" className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                        GitHub <ExternalLink className="size-3" />
-                      </a>
-                    </div>
-                    <Viewer path={open} file={files[open]} loading={pending && !files[open]} raw={raw} />
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
-    </Card>
+          </div>
+        )
+      ) : repo.files.length === 0 ? (
+        <p className="m-auto text-muted-foreground">The repo has no files.</p>
+      ) : (
+        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[10rem_minmax(0,1fr)] md:grid-cols-[220px_minmax(0,1fr)] md:grid-rows-1">
+          <Tree files={repo.files} open={open} onOpen={show} />
+          <div className="flex min-h-0 min-w-0 flex-col border-t md:border-t-0 md:border-l">
+            {!open ? (
+              <p className="m-auto text-muted-foreground">Pick a file.</p>
+            ) : (
+              <>
+                <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-1">
+                  <span className="truncate font-mono text-xs">{open}</span>
+                  <a href={blob(open)} target="_blank" rel="noreferrer" className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                    GitHub <ExternalLink className="size-3" />
+                  </a>
+                </div>
+                <Viewer path={open} file={files[open]} loading={pending && !files[open]} raw={raw} />
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -135,25 +118,24 @@ function Viewer({ path, file, loading, raw }: { path: string; file?: { text: str
   }
   if (loading || !file) {
     return (
-      <div className="m-auto flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="m-auto flex items-center gap-2 text-muted-foreground">
         <Loader2 className="size-4 animate-spin" /> Loading
       </div>
     );
   }
-  if ("error" in file) return <p className="m-auto px-4 text-center text-sm text-muted-foreground">{file.error}</p>;
-  const lines = file.text.replace(/\n$/, "").split("\n");
+  if ("error" in file) return <p className="m-auto px-4 text-center text-muted-foreground">{file.error}</p>;
+  return <Lines text={file.text} />;
+}
+
+// Line-numbered code. Two plain <pre>s rather than a row per line, so big files stay quick.
+export function Lines({ text }: { text: string }) {
+  const lines = text.replace(/\n$/, "").split("\n");
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <table className="w-full border-collapse font-mono text-xs leading-5">
-        <tbody>
-          {lines.map((l, i) => (
-            <tr key={i}>
-              <td className="w-px select-none border-r bg-muted/40 px-2 text-right align-top text-muted-foreground">{i + 1}</td>
-              <td className="px-3 align-top whitespace-pre">{l || " "}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="flex min-h-0 flex-1 overflow-auto font-mono text-xs leading-5">
+      <pre aria-hidden className="sticky left-0 shrink-0 border-r bg-muted px-2 py-2 text-right text-muted-foreground select-none">
+        {lines.map((_, i) => i + 1).join("\n")}
+      </pre>
+      <pre className="flex-1 px-3 py-2">{lines.join("\n")}</pre>
     </div>
   );
 }
@@ -211,7 +193,7 @@ function Tree({ files, open, onOpen }: { files: { path: string; size: number }[]
             style={{ paddingLeft: 8 + depth * 12 }}
             className={cn(
               "flex w-full items-center gap-1.5 rounded py-1 pr-2 text-left text-xs transition-colors",
-              open === n.path ? "bg-primary text-primary-foreground" : "hover:bg-muted",
+              open === n.path ? "bg-muted font-medium text-foreground" : "hover:bg-muted/60",
             )}
           >
             {n.children ? (
@@ -232,7 +214,7 @@ function Tree({ files, open, onOpen }: { files: { path: string; size: number }[]
       );
     });
 
-  return <ul className="min-h-0 overflow-y-auto p-1.5">{render(tree, 0)}</ul>;
+  return <ul className="min-h-0 overflow-y-auto p-1">{render(tree, 0)}</ul>;
 }
 
 // Relative links in the README open in the file browser; relative images load from GitHub.
