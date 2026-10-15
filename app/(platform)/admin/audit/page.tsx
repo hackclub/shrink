@@ -26,7 +26,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
   return (
     <>
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <H1 sub={`Who reviewed what, how long they actually spent on it, and the recording of every desk visit. Active time skips any gap over ${IDLE_MS / 1000}s without a mouse move, click, scroll or key.`}>
+        <H1 sub={`Who reviewed what, how long they actually spent on it, and the recording of every desk visit. Active time skips any gap over ${IDLE_MS / 1000}s without a mouse move, click, scroll or key, including time away in another tab.`}>
           review audit
         </H1>
         <AdminNav />

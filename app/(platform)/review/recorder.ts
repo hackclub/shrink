@@ -7,7 +7,8 @@
 //
 // It also measures active time: a gap between two interactions (mouse, keys, scroll,
 // touch, typing) counts only if it's under IDLE_MS, and goes to the ship open for
-// review. Those totals ride along in the recording as "active" events, so they get the
+// review. Switching tabs counts the same way, so a quick look at the repo on GitHub
+// is still review time, but a longer trip away isn't. Those totals ride along in the recording as "active" events, so they get the
 // same retries and survive the same crashes; the server pulls them out on upload.
 import { gzipSync, strToU8 } from "fflate";
 
@@ -90,7 +91,7 @@ class Session {
   private timer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
   private waiters: (() => void)[] = [];
-  // Active time: the last interaction (null while idle or hidden), the ship being
+  // Active time: the last interaction (null before the first and after leaving), the ship being
   // reviewed, and time credited but not yet written into the recording.
   private lastAct: number | null = null;
   private ship: string | null = null;
@@ -164,7 +165,7 @@ class Session {
     this.lastAct = t;
   }
 
-  // Hidden or leaving: count up to now if they were active, then nothing until they're back.
+  // Leaving: count up to now if they were active, then nothing more.
   pause() {
     this.touch(Date.now());
     this.lastAct = null;
@@ -355,13 +356,11 @@ let reviewing: string | null = null;
 let lastShip: unknown = null;
 let stopping: ReturnType<typeof setTimeout> | null = null;
 
+// Hiding the tab counts as an interaction, and so does coming back: time away is
+// credited if they're back within IDLE_MS, like any other pause.
 function onHide() {
-  if (document.visibilityState === "hidden") {
-    current?.pause();
-    current?.goodbye(false);
-  } else {
-    current?.touch(Date.now());
-  }
+  current?.touch(Date.now());
+  if (document.visibilityState === "hidden") current?.goodbye(false);
 }
 function onPageHide() {
   current?.pause();
