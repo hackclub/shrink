@@ -63,6 +63,7 @@ export const REWARDS: Reward[] = [
   { slug: "sticker-pack", name: "Hack Club sticker pack", label: ["sticker pack"], desc: "A pack of Hack Club stickers.", img: "sticker-pack", w: 357, h: 247, cost: 2, size: 0.09, tilt: 5 },
   { slug: "magazine", name: "Hack Club magazine", label: ["the magazine"], desc: "The 2025 Hack Club magazine.", img: "magazine", w: 508, h: 720, cost: 2, size: 0.09, tilt: -3 },
   { slug: "domain", name: "Domain for a year", label: ["$12 domain", "grant"], desc: "$12 grant toward a domain for one year.", img: "domain", w: 720, h: 330, cost: 2, size: 0.13, tilt: 2, digital: true },
+  { slug: "app-store", name: "Play Store or App Store grant", label: ["$7 app store", "grant"], desc: "$7 grant toward a Google Play or Apple App Store developer account.", img: "app-store", w: 480, h: 720, cost: 2, size: 0.08, tilt: -2, digital: true },
   { slug: "xiao-esp32", name: "XIAO ESP32", label: ["XIAO ESP32"], desc: "Seeed Studio XIAO ESP32, a thumb-sized board with Wi-Fi and Bluetooth.", img: "xiao-esp32", w: 485, h: 641, cost: 3, size: 0.06, tilt: 4 },
   { slug: "orpheus-pico", name: "Orpheus Pico", label: ["Orpheus Pico"], desc: "Hack Club's RP2040 microcontroller board.", img: "orpheus-pico", w: 720, h: 277, cost: 3, size: 0.13, tilt: -4 },
   { slug: "micro-plushie", name: "Micro plushie", label: ["micro plushie"], desc: "A small plush toy.", img: "micro-plushie", w: 425, h: 576, cost: 3, size: 0.07, tilt: 3 },
