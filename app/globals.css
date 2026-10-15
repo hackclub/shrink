@@ -657,8 +657,6 @@ textarea.input {
    cards are white, hover washes are neutral (not the brand yellow), and bare borders
    pick up the theme border instead of currentColor. */
 .desk {
-  /* Site header height (hazard strip, nav, rule): on wide screens the desk fills the rest. */
-  --desk-top: 69px;
   --card: #ffffff;
   --accent: #ebebf2;
   --border: #dcdae2;
@@ -674,6 +672,22 @@ textarea.input {
 /* shadcn parts draw their own focus ring; skip the site-wide outline on top of it. */
 .desk [data-slot]:focus-visible {
   outline: none;
+}
+/* On wide screens the desk is the page: it fills what the header leaves, the page itself
+   never scrolls, and the footer goes. */
+@media (min-width: 64rem) {
+  html:has(.desk),
+  body:has(.desk) {
+    height: 100%;
+    overflow: hidden;
+  }
+  body:has(.desk) main {
+    min-height: 0;
+    padding-bottom: 0;
+  }
+  body:has(.desk) footer {
+    display: none;
+  }
 }
 .desk .app-frame {
   background: #fff;

@@ -55,7 +55,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
   const nextHref = idx >= 0 && idx < queue.length - 1 ? href(queue[idx + 1].ship.id) : null;
 
   return (
-    <div className="desk grid grid-cols-1 border bg-white text-sm lg:-mx-[var(--gutter)] lg:-mt-[clamp(1.5rem,3vw,48px)] lg:-mb-[clamp(1.5rem,3vw,48px)] lg:h-[calc(100svh-var(--desk-top))] lg:grid-cols-[256px_minmax(0,1fr)_360px] lg:border-x-0 lg:border-t-0 2xl:grid-cols-[288px_minmax(0,1fr)_420px]">
+    <div className="desk grid grid-cols-1 border bg-white text-sm lg:-mx-[var(--gutter)] lg:-mt-[clamp(1.5rem,3vw,48px)] lg:min-h-0 lg:flex-1 lg:grid-cols-[256px_minmax(0,1fr)_360px] lg:border-x-0 lg:border-t-0 2xl:grid-cols-[288px_minmax(0,1fr)_420px]">
       {/* Queue */}
       <aside className="flex min-h-0 flex-col border-b lg:border-r lg:border-b-0">
         <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
