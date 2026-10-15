@@ -3,6 +3,7 @@ import "server-only";
 import { and, desc, eq } from "drizzle-orm";
 
 import { REWARD_BY_SLUG } from "@/lib/program";
+import { cleanPhone, phoneRequired } from "@/lib/shipping";
 
 import { fetchAddresses, normalizeAddress, type Address } from "./auth/hca";
 import { decrypt, encryptJson } from "./crypto";
@@ -38,7 +39,7 @@ export async function addressesFor(user: User): Promise<AddressChoice[] | "recon
   return list;
 }
 
-export async function placeOrder(user: User, input: { rewardSlug: string; addressId: string; note: string }): Promise<Order> {
+export async function placeOrder(user: User, input: { rewardSlug: string; addressId: string; phone: string; note: string }): Promise<Order> {
   const reward = REWARD_BY_SLUG.get(input.rewardSlug);
   if (!reward) throw new OrderError("That prize doesn't exist.");
   const note = input.note.trim().slice(0, 500);
@@ -59,6 +60,14 @@ export async function placeOrder(user: User, input: { rewardSlug: string; addres
     const chosen = list.find((a) => a.id === input.addressId) ?? list[0];
     if (!chosen) throw new OrderError("Add an address to your Hack Club account first.");
     address = chosen.address;
+    // Only asked for when the Hack Club address has none; it goes on this order, not back to Hack Club.
+    if (!address.phone) {
+      const typed = input.phone.trim();
+      const phone = typed ? cleanPhone(typed) : null;
+      if (typed && !phone) throw new OrderError("That phone number doesn't look right. Include your country code, like +44 20 7946 0958.");
+      if (!phone && phoneRequired(address.country)) throw new OrderError("Add a phone number. Couriers outside the US need one to deliver.");
+      address = { ...address, phone };
+    }
   }
 
   return db.transaction(async (tx) => {

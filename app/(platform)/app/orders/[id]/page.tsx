@@ -82,6 +82,12 @@ export default async function OrderPage({
                   {address.line2 ? `, ${address.line2}` : ""}
                   <br />
                   {[address.city, address.region, address.postcode].filter(Boolean).join(", ")}, {address.country}
+                  {address.phone && (
+                    <>
+                      <br />
+                      <span className="font-mono text-xs">{address.phone}</span>
+                    </>
+                  )}
                 </p>
               ) : (
                 <p className="text-sm font-medium text-black/50">{reward?.digital ? "digital, nothing to ship" : "—"}</p>

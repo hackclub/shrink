@@ -1,15 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 
 import PixelButton from "@/app/components/PixelButton";
 import { Notice } from "@/app/components/ui/bits";
+import { phoneRequired } from "@/lib/shipping";
 
 import { orderAction, type OrderFormState } from "./actions";
 
 type RewardView = { slug: string; name: string; desc: string; img: string | null; w: number; h: number; cost: number; digital: boolean; tilt: number };
-type AddressView = { id: string; recipient: string; line1: string; line2: string | null; city: string; region: string | null; postcode: string; country: string };
+type AddressView = { id: string; recipient: string; line1: string; line2: string | null; city: string; region: string | null; postcode: string; country: string; phone: string | null };
 
 export default function Shop({
   rewards,
@@ -83,6 +85,7 @@ export default function Shop({
                   <span className="rounded-[0.2em] bg-black px-[0.5em] py-[0.25em] font-mono text-xs font-medium leading-none text-white">
                     {r.cost} BITES
                   </span>
+                  {eligible && !can && <span className="font-mono text-xs font-medium text-black/50">{r.cost - bites} more to go</span>}
                 </button>
               </li>
             );
@@ -117,7 +120,13 @@ function OrderDialog({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const router = useRouter();
   const [state, action, pending] = useActionState<OrderFormState, FormData>(orderAction, { error: null });
+  const [refreshing, startRefresh] = useTransition();
+  // Controlled, so what they typed survives an error (a form action resets uncontrolled fields).
+  const [addressId, setAddressId] = useState(addresses?.[0]?.id ?? "");
+  const [phone, setPhone] = useState("");
+  const [note, setNote] = useState("");
   useEffect(() => {
     const d = ref.current;
     if (d && !d.open) d.showModal();
@@ -125,6 +134,9 @@ function OrderDialog({
 
   const needsAddress = !reward.digital;
   const noAddress = needsAddress && (!addresses || addresses.length === 0);
+  const chosen = addresses?.find((a) => a.id === addressId) ?? addresses?.[0] ?? null;
+  const askPhone = needsAddress && chosen !== null && !chosen.phone;
+  const mustPhone = askPhone && phoneRequired(chosen.country);
 
   return (
     <dialog
@@ -145,7 +157,14 @@ function OrderDialog({
         </div>
 
         <div className="flex flex-col gap-5 px-5 py-5">
-          <p className="font-medium text-black/80">{reward.desc}</p>
+          <div className="flex items-center gap-4">
+            {reward.img && (
+              <div className="reward-sticker flex h-20 w-24 shrink-0 items-center justify-center">
+                <Image src={`/design/rewards/${reward.img}.png`} alt="" width={reward.w} height={reward.h} className="max-h-full w-auto max-w-full" />
+              </div>
+            )}
+            <p className="font-medium text-black/80">{reward.desc}</p>
+          </div>
 
           <div className="flex items-baseline justify-between border-y-4 border-rule py-3 font-mono text-sm">
             <span>
@@ -157,62 +176,96 @@ function OrderDialog({
           {needsAddress && (
             <fieldset>
               <legend className="label">ship to</legend>
-              {addresses === null ? (
-                <Notice>
-                  We couldn&rsquo;t read your address from Hack Club. Sign out and in again, and make sure you have an address at{" "}
-                  <a href={hcaAddressesUrl} target="_blank" rel="noreferrer" className="underline">
-                    auth.hackclub.com
-                  </a>
-                  .
-                </Notice>
-              ) : addresses.length === 0 ? (
-                <Notice>
-                  No address on your Hack Club account yet.{" "}
-                  <a href={hcaAddressesUrl} target="_blank" rel="noreferrer" className="underline">
-                    Add one
-                  </a>
-                  , then come back.
-                </Notice>
+              {noAddress ? (
+                <div className="flex flex-col gap-3">
+                  <Notice>
+                    {addresses === null
+                      ? "We couldn't read your address from Hack Club. Sign out and in again, and make sure you have one on your Hack Club account."
+                      : "No address on your Hack Club account yet."}
+                  </Notice>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <a href={hcaAddressesUrl} target="_blank" rel="noreferrer" className="font-semibold underline decoration-1 underline-offset-[0.25em] hover:decoration-2">
+                      add an address ↗
+                    </a>
+                    <PixelButton onClick={() => startRefresh(() => router.refresh())} disabled={refreshing} className="text-sm">
+                      {refreshing ? "checking…" : "i added one"}
+                    </PixelButton>
+                  </div>
+                </div>
               ) : (
-                <ul className="flex flex-col gap-2">
-                  {addresses.map((a, i) => (
-                    <li key={a.id}>
-                      <label className="check">
-                        <input type="radio" name="address" value={a.id} defaultChecked={i === 0} required />
-                        <span className="text-sm leading-snug">
-                          <span className="block font-semibold">{a.recipient}</span>
-                          {a.line1}
-                          {a.line2 ? `, ${a.line2}` : ""}, {a.city}
-                          {a.region ? `, ${a.region}` : ""} {a.postcode}, {a.country}
-                        </span>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <ul className="flex flex-col gap-2">
+                    {addresses!.map((a) => (
+                      <li key={a.id}>
+                        <label className="check">
+                          <input type="radio" name="address" value={a.id} checked={chosen?.id === a.id} onChange={() => setAddressId(a.id)} required />
+                          <span className="text-sm leading-snug">
+                            <span className="block font-semibold">{a.recipient}</span>
+                            {a.line1}
+                            {a.line2 ? `, ${a.line2}` : ""}, {a.city}
+                            {a.region ? `, ${a.region}` : ""} {a.postcode}, {a.country}
+                            <span className="block font-mono text-xs text-black/50">{a.phone ?? "no phone number"}</span>
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-sm font-medium text-black/50">
+                    Wrong?{" "}
+                    <a href={hcaAddressesUrl} target="_blank" rel="noreferrer" className="underline">
+                      Change it on auth.hackclub.com
+                    </a>
+                    , then{" "}
+                    <button type="button" onClick={() => startRefresh(() => router.refresh())} className="underline">
+                      {refreshing ? "reloading…" : "reload it here"}
+                    </button>
+                    .
+                  </p>
+                </>
               )}
-              <p className="mt-2 text-sm font-medium text-black/50">
-                Wrong?{" "}
-                <a href={hcaAddressesUrl} target="_blank" rel="noreferrer" className="underline">
-                  Change it on auth.hackclub.com
-                </a>
-                .
-              </p>
             </fieldset>
+          )}
+
+          {askPhone && (
+            <div>
+              <label className="label" htmlFor="phone">
+                phone number{mustPhone ? " · the courier needs one to deliver outside the US" : " · optional, helps the courier"}
+              </label>
+              <input
+                id="phone"
+                name="phone"
+                type="tel"
+                autoComplete="tel"
+                inputMode="tel"
+                maxLength={30}
+                required={mustPhone}
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder={mustPhone ? "+44 20 7946 0958" : "+1 555 010 0199"}
+                className="input font-mono"
+              />
+              <p className="mt-1 text-xs font-medium text-black/50">Include your country code. Only used for this order&rsquo;s delivery.</p>
+            </div>
           )}
 
           <div>
             <label className="label" htmlFor="note">
-              anything we should know?{reward.digital ? " (e.g. the email to send it to)" : ""}
+              {reward.digital ? "where should we send it? (e.g. an email)" : "anything we should know?"}
             </label>
-            <input id="note" name="note" maxLength={500} className="input" />
+            <input id="note" name="note" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} className="input" />
           </div>
 
           {state.error && <Notice>{state.error}</Notice>}
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <PixelButton type="submit" variant="dark" disabled={pending || noAddress} className="text-[1rem]">
               {pending ? "ordering…" : `spend ${reward.cost} BITES`}
             </PixelButton>
+            {!reward.digital && chosen && !noAddress && (
+              <span className="text-sm font-medium text-black/50">
+                ships to {chosen.city}, {chosen.country}
+              </span>
+            )}
           </div>
         </div>
       </form>
