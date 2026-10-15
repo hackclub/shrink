@@ -14,6 +14,7 @@ import { fullScan } from "./scan";
 import * as ledger from "./ledger";
 import { payReferral } from "./referrals";
 import { withdraw } from "./secondary";
+import { fillSlackHandles, publicName } from "./users";
 
 export class ShipError extends Error {}
 
@@ -271,9 +272,10 @@ export async function shipById(id: string) {
 
 export type QueueItem = {
   ship: Ship;
-  author: Pick<User, "id" | "displayName" | "email" | "slackId" | "eligibility" | "avatarUrl">;
+  // Reviewers see people only by Slack handle: no name or email, so none is loaded.
+  author: Pick<User, "id" | "slackId" | "slackHandle" | "eligibility" | "avatarUrl">;
   // Whoever has it open right now, if their claim is still live.
-  claimer: Pick<User, "id" | "displayName"> | null;
+  claimer: Pick<User, "id" | "slackId" | "slackHandle"> | null;
 };
 
 // A reviewer's desk renews its claim every minute while the ship is open, so a
@@ -307,12 +309,12 @@ export async function claim(reviewer: User, shipId: string): Promise<{ ok: true 
       .returning({ id: ships.id });
     if (took) return { ok: true };
     const [row] = await tx
-      .select({ name: users.displayName })
+      .select({ slackHandle: users.slackHandle })
       .from(ships)
       .innerJoin(users, eq(ships.claimedBy, users.id))
       .where(eq(ships.id, shipId))
       .limit(1);
-    return { ok: false, by: row?.name ?? "Someone" };
+    return { ok: false, by: row ? publicName(row) : "Someone" };
   });
 }
 
@@ -335,7 +337,7 @@ export async function showcase(limit = 9) {
       awardedBites: ships.awardedBites,
       awardedBadges: ships.awardedBadges,
       reviewedAt: ships.reviewedAt,
-      author: users.displayName,
+      author: users.slackHandle,
     })
     .from(ships)
     .innerJoin(users, eq(ships.userId, users.id))
@@ -354,13 +356,12 @@ export async function reviewQueue(tab: "queue" | "done" = "queue"): Promise<Queu
       ship: ships,
       author: {
         id: users.id,
-        displayName: users.displayName,
-        email: users.email,
         slackId: users.slackId,
+        slackHandle: users.slackHandle,
         eligibility: users.eligibility,
         avatarUrl: users.avatarUrl,
       },
-      claimer: { id: claimers.id, displayName: claimers.displayName },
+      claimer: { id: claimers.id, slackId: claimers.slackId, slackHandle: claimers.slackHandle },
     })
     .from(ships)
     .innerJoin(users, eq(ships.userId, users.id))
@@ -371,5 +372,6 @@ export async function reviewQueue(tab: "queue" | "done" = "queue"): Promise<Queu
         : and(or(ne(ships.state, "pending"), isNotNull(ships.verdict)), not(failed!)),
     )
     .orderBy(desc(sql`coalesce(${ships.secondaryState} = 'failed', false)`), ships.createdAt);
+  await fillSlackHandles(rows.flatMap((r) => (r.claimer ? [r.author, r.claimer] : [r.author])));
   return rows;
 }

@@ -9,12 +9,18 @@ import { users, type User } from "./db/schema";
 import { env } from "./env";
 import { checkIdentity, deriveEligibility, type Identity, type Tokens } from "./auth/hca";
 
+// How a person appears to anyone who isn't an admin.
+export const publicName = (u: Pick<User, "slackHandle">) => (u.slackHandle ? `@${u.slackHandle}` : "someone");
+
 export const tokenBinding = (userId: string) => `users/${userId}/hca_token`;
 
 // `referrerId` only sticks to someone signing in for the first time: a new row,
 // or a Slack join placeholder that's never been signed into.
 export async function upsertFromSignIn(identity: Identity, tokens: Tokens, referrerId: string | null = null): Promise<User> {
-  const check = await checkIdentity(identity.sub);
+  const [check, slack] = await Promise.all([
+    checkIdentity(identity.sub),
+    identity.slackId ? slackProfile(identity.slackId) : null,
+  ]);
   const eligibility = deriveEligibility(identity.verificationStatus, check);
   const bootstrapAdmin =
     env.ADMIN_HCA_SUBJECTS.includes(identity.sub) || env.ADMIN_EMAILS.includes(identity.email.toLowerCase());
@@ -37,6 +43,7 @@ export async function upsertFromSignIn(identity: Identity, tokens: Tokens, refer
     email: identity.email,
     displayName: identity.name,
     slackId: identity.slackId ?? existing?.slackId ?? null,
+    slackHandle: slack?.handle ?? existing?.slackHandle ?? null,
     verificationStatus: identity.verificationStatus,
     eligibility,
     eligibilityAt: new Date(),
@@ -90,10 +97,12 @@ export async function currentEligibility(user: User): Promise<User["eligibility"
 
 export const SLACK_ID = /^[UW][A-Z0-9]{6,20}$/;
 
-type SlackProfile = { name: string | null; email: string | null; avatar: string | null };
+// `handle` is the only part anyone but an admin gets to see. It never falls back to
+// real_name: that's often their legal name.
+type SlackProfile = { name: string | null; handle: string | null; email: string | null; avatar: string | null };
 
 async function slackProfile(slackId: string): Promise<SlackProfile> {
-  const none = { name: null, email: null, avatar: null };
+  const none = { name: null, handle: null, email: null, avatar: null };
   if (!env.SLACK_BOT_TOKEN) return none;
   try {
     const res = await fetch(`https://slack.com/api/users.info?user=${encodeURIComponent(slackId)}`, {
@@ -104,7 +113,7 @@ async function slackProfile(slackId: string): Promise<SlackProfile> {
     const json = (await res.json()) as {
       ok?: boolean;
       error?: string;
-      user?: { real_name?: string; profile?: { display_name?: string; real_name?: string; email?: string; image_192?: string } };
+      user?: { name?: string; real_name?: string; profile?: { display_name?: string; real_name?: string; email?: string; image_192?: string } };
     };
     if (!json.ok || !json.user) {
       console.error(`[slack] users.info ${slackId} failed: ${json.error ?? res.status}`);
@@ -113,6 +122,7 @@ async function slackProfile(slackId: string): Promise<SlackProfile> {
     const p = json.user.profile ?? {};
     return {
       name: p.display_name || p.real_name || json.user.real_name || null,
+      handle: p.display_name || json.user.name || null,
       email: p.email || null,
       avatar: p.image_192 || null,
     };
@@ -141,6 +151,7 @@ export async function joinFromSlack(slackId: string): Promise<{ user: User; crea
         slackId,
         email: profile.email ?? "",
         displayName: profile.name ?? slackId,
+        slackHandle: profile.handle,
         avatarUrl: profile.avatar,
       })
       .returning();
@@ -148,4 +159,17 @@ export async function joinFromSlack(slackId: string): Promise<{ user: User; crea
   });
   if (result.created) queueSync({ users: [result.user.id] });
   return result;
+}
+
+// For people who signed in before handles were stored. Fills at most `limit` per
+// call so a page load never waits on more than one round of Slack lookups.
+export async function fillSlackHandles(people: Pick<User, "id" | "slackId" | "slackHandle">[], limit = 10): Promise<void> {
+  const missing = [...new Map(people.filter((p) => p.slackId && !p.slackHandle).map((p) => [p.id, p])).values()].slice(0, limit);
+  if (!missing.length || !env.SLACK_BOT_TOKEN) return;
+  const found = await Promise.all(missing.map(async (p) => ({ p, handle: (await slackProfile(p.slackId!)).handle })));
+  for (const { p, handle } of found) {
+    if (!handle) continue;
+    await db.update(users).set({ slackHandle: handle }).where(and(eq(users.id, p.id), isNull(users.slackHandle)));
+    for (const q of people) if (q.id === p.id) q.slackHandle = handle;
+  }
 }

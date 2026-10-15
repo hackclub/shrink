@@ -89,7 +89,7 @@ async function referralPaid(author: User, ship: Ship, origin: string) {
   if (!row || !ship.reviewedAt || Math.abs(row.at.getTime() - ship.reviewedAt.getTime()) > 60_000) return;
   await dm(
     row.referrer,
-    `${esc(author.displayName)} signed up with your link and just got *${esc(ship.title)}* approved, so you get *${row.amount} BITE${row.amount === 1 ? "" : "S"}*. thanks for bringing them in!\n${origin}/app/invite`,
+    `${who(author)} signed up with your link and just got *${esc(ship.title)}* approved, so you get *${row.amount} BITE${row.amount === 1 ? "" : "S"}*. thanks for bringing them in!\n${origin}/app/invite`,
   );
 }
 

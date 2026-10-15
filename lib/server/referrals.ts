@@ -66,7 +66,7 @@ export async function referrerFor(code: string | undefined | null): Promise<stri
 // person out once, on whichever ship of theirs is approved first.
 export async function payReferral(tx: Tx, authorId: string, actorId: string): Promise<boolean> {
   const [row] = await tx
-    .select({ name: users.displayName, referrerId: users.referredById })
+    .select({ name: users.slackHandle, referrerId: users.referredById })
     .from(users)
     .where(eq(users.id, authorId))
     .limit(1);
@@ -77,7 +77,7 @@ export async function payReferral(tx: Tx, authorId: string, actorId: string): Pr
     userId: row.referrerId,
     amount: REFERRAL_BITES,
     type: "award",
-    reason: `referral: ${row.name}`,
+    reason: `referral: ${row.name ? `@${row.name}` : authorId}`,
     idempotencyKey: referralKey(authorId),
     actorId,
   });
@@ -100,7 +100,7 @@ export async function referralsOf(user: User): Promise<{ people: Referred[]; ear
     db
       .select({
         id: users.id,
-        name: users.displayName,
+        name: sql<string>`coalesce('@' || ${users.slackHandle}, 'someone')`,
         avatarUrl: users.avatarUrl,
         joinedAt: users.createdAt,
         shipped: sql<boolean>`exists (select 1 from ${ships} s where s.user_id = ${outerId})`,

@@ -38,6 +38,9 @@ export const users = pgTable(
     displayName: text("display_name").notNull(),
     avatarUrl: text("avatar_url"),
     slackId: text("slack_id"),
+    // Their Slack username. Reviewers and other participants see only this, never
+    // displayName (HCA's name, which is the legal one) or email.
+    slackHandle: text("slack_handle"),
     verificationStatus: text("verification_status"),
     eligibility: text("eligibility").notNull().default("undetermined"),
     eligibilityAt: timestamp("eligibility_at", { withTimezone: true }),

@@ -21,7 +21,7 @@ export default async function ExplorePage() {
                 href={`/app/ships/${sh.id}`}
                 title={sh.title}
                 uri={sh.dataUri}
-                meta={`${sh.author.split(/\s+/)[0]} · ${(sh.bytes / 1024).toFixed(1)}kb`}
+                meta={`${sh.author ? `@${sh.author}` : "someone"} · ${(sh.bytes / 1024).toFixed(1)}kb`}
                 chip={`${sh.awardedBites} BITES`}
               />
             </li>

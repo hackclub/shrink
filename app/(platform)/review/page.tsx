@@ -3,6 +3,7 @@ import { env } from "@/lib/server/env";
 import { fetchProjects } from "@/lib/server/hackatime";
 import { repoView } from "@/lib/server/scan";
 import { claim, reviewQueue, type QueueItem } from "@/lib/server/ships";
+import { publicName } from "@/lib/server/users";
 
 import Desk from "./Desk";
 import { applyFilter, countBy, parseFilter } from "./filter";
@@ -40,7 +41,7 @@ export default async function ReviewPage({
     const r = await claim(reviewer, current.ship.id);
     if (!r.ok) lockedBy = r.by;
   }
-  const holder = (q: QueueItem) => (q.ship.id === current?.ship.id ? lockedBy : heldByOther(q) ? q.claimer!.displayName : null);
+  const holder = (q: QueueItem) => (q.ship.id === current?.ship.id ? lockedBy : heldByOther(q) ? publicName(q.claimer!) : null);
 
   const idx = current ? queue.findIndex((q) => q.ship.id === current.ship.id) : -1;
   const next = idx >= 0 ? (queue.slice(idx + 1).find((q) => !heldByOther(q)) ?? null) : null;

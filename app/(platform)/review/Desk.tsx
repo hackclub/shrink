@@ -9,6 +9,7 @@ import type { Check as ScanCheck } from "@/lib/scan";
 import type { RepoView } from "@/lib/server/scan";
 import type { Ship, User } from "@/lib/server/db/schema";
 import { FRAUD_MESSAGE, type QueueItem } from "@/lib/server/ships";
+import { publicName } from "@/lib/server/users";
 import { cn } from "@/lib/utils";
 
 import ClaimKeeper from "./ClaimKeeper";
@@ -119,7 +120,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
                             {by}
                           </>
                         ) : (
-                          q.author.displayName
+                          publicName(q.author)
                         )}
                       </span>
                       {showDone || q.ship.secondaryState === "failed" ? <StateText ship={q.ship} /> : <Hours seconds={q.ship.claimedSeconds} />}
@@ -191,11 +192,10 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
               <div className="flex items-center gap-2.5">
                 <Avatar className="size-8">
                   {current.author.avatarUrl && <AvatarImage src={current.author.avatarUrl} alt="" />}
-                  <AvatarFallback className="text-xs">{current.author.displayName.slice(0, 2).toUpperCase()}</AvatarFallback>
+                  <AvatarFallback className="text-xs">{(current.author.slackHandle ?? "?").slice(0, 2).toUpperCase()}</AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{current.author.displayName}</p>
-                  <p className="truncate text-xs text-muted-foreground">{current.author.email}</p>
+                  <p className="truncate font-medium">{publicName(current.author)}</p>
                 </div>
                 {current.author.slackId && (
                   <ExtLink href={`https://hackclub.slack.com/team/${current.author.slackId}`} className="text-xs">
