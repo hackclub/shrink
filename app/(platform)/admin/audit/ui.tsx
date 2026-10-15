@@ -53,18 +53,18 @@ export function Stat({ label, value, sub, warn }: { label: string; value: React.
 }
 
 // Active minutes per day: one series, so one ink, no legend. Hover a bar for its numbers.
-export function DailyBars({ days }: { days: { day: string; ms: number; reviewMs: number }[] }) {
+export function DailyBars({ days }: { days: { day: string; ms: number }[] }) {
   const max = Math.max(...days.map((d) => d.ms), 1);
   const label = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
   return (
     <figure className="card bg-white px-4 py-3">
       <figcaption className="mb-2 flex items-baseline justify-between text-xs font-medium text-black/60">
-        <span>Active time per day (UTC)</span>
+        <span>Active time on decided ships per day (UTC)</span>
         <span className="font-mono">peak {duration(max)}</span>
       </figcaption>
       <div className="flex h-24 items-end gap-[2px] border-b border-black/15">
         {days.map((d) => (
-          <div key={d.day} className="group relative flex h-full flex-1 items-end" title={`${label(d.day)}: ${duration(d.ms)} active, ${duration(d.reviewMs)} on ships`}>
+          <div key={d.day} className="group relative flex h-full flex-1 items-end" title={`${label(d.day)}: ${duration(d.ms)} active`}>
             <div className="w-full rounded-t-[4px] bg-black/75 transition-colors group-hover:bg-black" style={{ height: d.ms ? `max(2px, ${(d.ms / max) * 100}%)` : 0 }} />
           </div>
         ))}

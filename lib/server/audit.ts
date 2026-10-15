@@ -43,8 +43,10 @@ export type ReviewerSummary = {
   medianMs: number;
   fast: number;
   unrecorded: number;
-  // All active desk time in range, decided or not, on a ship or not.
+  // Active desk time in range, only on ships they decided. Browsing the queue and
+  // ships they skipped or someone else decided don't count.
   activeMs: number;
+  // Last activity of any kind, decided or not.
   lastActive: Date | null;
   sessions: number;
   brokenSessions: number;
@@ -73,8 +75,9 @@ export async function reviewerSummaries(range: Range): Promise<ReviewerSummary[]
       from dr group by decider
     ),
     act as (
-      select user_id as id, sum(active_ms) as active_ms, max(to_at) as last_active
-      from review_activity where from_at >= ${at(from)} group by user_id
+      select a.user_id as id, max(a.to_at) as last_active,
+        coalesce(sum(a.active_ms) filter (where exists (select 1 from d where d.ship_id = a.ship_id and d.decider = a.user_id)), 0) as active_ms
+      from review_activity a where a.from_at >= ${at(from)} group by a.user_id
     ),
     sess as (
       select user_id as id, count(*) as sessions,
@@ -195,21 +198,22 @@ export async function reviewerUndecided(userId: string, range: Range) {
   }));
 }
 
-// Active minutes per day (UTC), for the reviewer's activity strip.
-export async function reviewerDaily(userId: string, range: Range): Promise<{ day: string; ms: number; reviewMs: number }[]> {
+// Active minutes per day (UTC) on ships they decided, for the reviewer's activity strip.
+export async function reviewerDaily(userId: string, range: Range): Promise<{ day: string; ms: number }[]> {
   const days = RANGES[range] ?? 90;
   const from = new Date(Date.now() - (days - 1) * 86_400_000);
   const rows = await db.execute<Record<string, unknown>>(sql`
-    select to_char(date_trunc('day', from_at at time zone 'UTC'), 'YYYY-MM-DD') as day,
-      sum(active_ms) as ms, coalesce(sum(active_ms) filter (where ship_id is not null), 0) as review_ms
-    from review_activity
-    where user_id = ${userId} and from_at >= ${at(from)}
+    with d as (${DECISIONS})
+    select to_char(date_trunc('day', a.from_at at time zone 'UTC'), 'YYYY-MM-DD') as day, sum(a.active_ms) as ms
+    from review_activity a
+    join d on d.ship_id = a.ship_id and d.decider = a.user_id
+    where a.user_id = ${userId} and a.from_at >= ${at(from)}
     group by 1
   `);
-  const by = new Map(rows.map((r) => [String(r.day), { ms: Number(r.ms), reviewMs: Number(r.review_ms) }]));
+  const by = new Map(rows.map((r) => [String(r.day), Number(r.ms)]));
   return Array.from({ length: days }, (_, i) => {
     const day = new Date(from.getTime() + i * 86_400_000).toISOString().slice(0, 10);
-    return { day, ...(by.get(day) ?? { ms: 0, reviewMs: 0 }) };
+    return { day, ms: by.get(day) ?? 0 };
   });
 }
 

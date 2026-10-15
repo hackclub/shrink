@@ -39,7 +39,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
       <div className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-5">
         <Stat label="Decisions" value={total.decisions} />
         <Stat label="Active review time" value={duration(total.reviewMs)} sub={total.decisions ? `${duration(total.reviewMs / total.decisions)} per decision` : undefined} />
-        <Stat label="Active desk time" value={duration(total.activeMs)} sub="including browsing the queue" />
+        <Stat label="Active desk time" value={duration(total.activeMs)} sub="in range, on ships they decided" />
         <Stat label={`Under ${FAST_REVIEW_MS / 1000}s`} value={total.fast} warn={total.fast > 0} sub="decisions made very fast" />
         <Stat label="Recording problems" value={broken + total.unrecorded} warn={broken + total.unrecorded > 0} sub={`${broken} broken sessions · ${total.unrecorded} unrecorded decisions`} />
       </div>
@@ -59,7 +59,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
                 </th>
                 <th className="px-3 py-2 text-right font-medium">Avg</th>
                 <th className="px-3 py-2 text-right font-medium">Median</th>
-                <th className="px-3 py-2 text-right font-medium" title="All active time on the desk in range">
+                <th className="px-3 py-2 text-right font-medium" title="Active time in range on ships they decided, not browsing">
                   Desk time
                 </th>
                 <th className="px-3 py-2 font-medium">Flags</th>

@@ -49,7 +49,7 @@ export default async function ReviewerAuditPage({ params, searchParams }: { para
         <Stat label="Review time" value={duration(reviewMs)} sub="active, on ships they decided" />
         <Stat label="Avg per review" value={decisions.length ? duration(reviewMs / decisions.length) : "–"} sub={slowest ? `longest ${duration(slowest)}` : undefined} />
         <Stat label="Median per review" value={s?.decisions ? duration(s.medianMs) : "–"} warn={!!s?.decisions && s.medianMs < FAST_REVIEW_MS} />
-        <Stat label="Desk time" value={duration(s?.activeMs ?? 0)} sub="all active time on the desk" />
+        <Stat label="Desk time" value={duration(s?.activeMs ?? 0)} sub="in range, on ships they decided" />
         <Stat
           label="Flags"
           value={(s?.fast ?? 0) + (s?.unrecorded ?? 0) + (s?.brokenSessions ?? 0)}
