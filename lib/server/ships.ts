@@ -135,9 +135,10 @@ export async function unship(user: User, shipId: string): Promise<Ship> {
   });
 }
 
-export type Decision =
+export type Decision = (
   | { kind: "approve"; awardedHours: number; badges: string[]; message: string; internalNote: string }
-  | { kind: "reject"; message: string; internalNote: string };
+  | { kind: "reject"; message: string; internalNote: string }
+) & { replayId?: string };
 
 // Prefilled for an admin confirming a failed secondary check. They can edit it before it goes out.
 export const FRAUD_MESSAGE = "Unfortunately, your project did not pass fraud reviews. Please be on the lookout for a message from @Fraud Squad.";
@@ -180,6 +181,7 @@ export async function decide(reviewer: User, shipId: string, decision: Decision)
           internalNote: note || null,
           claimedBy: null,
           claimedAt: null,
+          replayId: decision.replayId ?? null,
         })
         .where(and(eq(ships.id, ship.id), eq(ships.state, "pending")))
         .returning();
@@ -207,7 +209,7 @@ export async function decide(reviewer: User, shipId: string, decision: Decision)
 
     const [held] = await tx
       .update(ships)
-      .set({ verdict, claimedBy: null, claimedAt: null })
+      .set({ verdict, claimedBy: null, claimedAt: null, replayId: decision.replayId ?? null })
       .where(and(eq(ships.id, ship.id), eq(ships.state, "pending"), isNull(ships.verdict)))
       .returning();
     if (!held) throw new ShipError("Someone already decided this one.");

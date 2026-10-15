@@ -15,6 +15,7 @@ import ClaimKeeper from "./ClaimKeeper";
 import { FILTER_LABEL, SECONDARY_FILTERS, secondaryOf, type SecondaryFilter } from "./filter";
 import DecisionForm from "./DecisionForm";
 import QueueLink from "./QueueLink";
+import { ReplayMark } from "./Recorder";
 import Workspace from "./Workspace";
 
 export type DeskProps = {
@@ -147,6 +148,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
               </p>
             )}
             <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2.5">
+              <ReplayMark shipId={current.ship.id} number={current.ship.number} reviewing={!showDone && current.ship.state === "pending"} />
               <h1 className="min-w-0 truncate text-base font-semibold tracking-tight">{current.ship.title}</h1>
               <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                 <span className="font-mono">#{current.ship.number}</span>
