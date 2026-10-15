@@ -465,6 +465,9 @@ function Label({
         <span className="text-xs font-semibold text-black/50">if approved</span>
         <span className={`font-pixel text-[2.6rem] leading-none ${estimate ? "" : "text-black/25"}`}>≈ <Num value={estimate} /> BITES</span>
       </div>
+      {estimate === 0 && (
+        <p className="px-5 pb-3 text-xs text-black/50">Under an hour earns 0 BITES. It's 1 per hour, rounded down (.9 rounds up), so keep building!</p>
+      )}
       <Barcode value={uri} />
     </div>
   );

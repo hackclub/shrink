@@ -72,6 +72,9 @@ export default async function ShipPage({
                   </span>
                 </p>
               )}
+              {ship.state === "approved" && ship.awardedBites === 0 && (
+                <p className="mt-2 text-xs text-black/50">0 BITES because it's under an hour. BITES are 1 per hour, rounded down (.9 rounds up).</p>
+              )}
               {ship.awardedBadges && ship.awardedBadges.length > 0 && (
                 <ul className="mt-2 flex flex-wrap gap-1.5">
                   {ship.awardedBadges.map((b) => (

@@ -132,6 +132,9 @@ export default function DecisionForm({
                 </span>
               </p>
             </div>
+            {h > 0 && bites === 0 && (
+              <p className="text-xs text-muted-foreground">Under 0.9h earns 0 BITES. It's 1 per hour, rounded down (.9 rounds up).</p>
+            )}
 
             <fieldset>
               <legend className="mb-1 text-xs text-muted-foreground">

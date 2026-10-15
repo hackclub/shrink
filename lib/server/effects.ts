@@ -58,9 +58,13 @@ export async function shipDecided(ship: Ship, author: User, origin: string) {
       channel(`${who(author)}'s ${link} was approved: ${ship.awardedBites} BITES.`),
       dm(
         author,
-        `your ship *${esc(ship.title)}* was approved for *${ship.awardedBites} BITES*! 🎉\n${
-          ship.publicMessage ? `> ${esc(ship.publicMessage)}\n` : ""
-        }spend them at ${origin}/app/shop`,
+        ship.awardedBites
+          ? `your ship *${esc(ship.title)}* was approved for *${ship.awardedBites} BITES*! 🎉\n${
+              ship.publicMessage ? `> ${esc(ship.publicMessage)}\n` : ""
+            }spend them at ${origin}/app/shop`
+          : `your ship *${esc(ship.title)}* was approved, but for *0 BITES* since it's under an hour. BITES are 1 per hour, rounded down (.9 rounds up). keep building!${
+              ship.publicMessage ? `\n> ${esc(ship.publicMessage)}` : ""
+            }`,
       ),
     ]);
     await referralPaid(author, ship, origin);

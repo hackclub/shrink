@@ -281,15 +281,18 @@ async function approve(tx: Tx, ship: Ship, v: Verdict): Promise<Ship> {
   if (!updated) throw new ShipError("Someone already decided this one.");
 
   await ledger.lockUser(ship.userId, tx);
-  await ledger.post(tx, {
-    userId: ship.userId,
-    amount: v.bites,
-    type: "award",
-    reason: ship.title,
-    idempotencyKey: `ship:${ship.id}:award`,
-    actorId: v.reviewerId,
-  });
-  await payReferral(tx, ship.userId, v.reviewerId);
+  // Under 0.9h awards nothing: no ledger entry (it takes no zeros) and no referral payout.
+  if (v.bites > 0) {
+    await ledger.post(tx, {
+      userId: ship.userId,
+      amount: v.bites,
+      type: "award",
+      reason: ship.title,
+      idempotencyKey: `ship:${ship.id}:award`,
+      actorId: v.reviewerId,
+    });
+    await payReferral(tx, ship.userId, v.reviewerId);
+  }
   return updated;
 }
 

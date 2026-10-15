@@ -34,8 +34,9 @@ export function capFor(badgeSlugs: string[]): number {
 }
 
 export function bitesFor(awardedSeconds: number, badgeSlugs: string[]): number {
-  const hours = awardedSeconds / 3600;
-  return Math.max(1, Math.min(capFor(badgeSlugs), Math.round(hours)));
+  // Round down, except .9 and up rounds up (2.9h → 3, 2.8h → 2). Whole seconds keep 2.9 exact.
+  const hours = Math.floor((Math.round(awardedSeconds) + 360) / 3600);
+  return Math.min(capFor(badgeSlugs), hours);
 }
 
 export type Reward = {
