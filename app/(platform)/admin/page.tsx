@@ -61,6 +61,9 @@ export default async function AdminPage() {
           <Link href="/admin/orders" className="rounded-[4px] px-2 py-1 text-black/60 hover:bg-black/5">
             orders {openOrders.n > 0 && <span className="font-pixel">({openOrders.n})</span>}
           </Link>
+          <Link href="/admin/audit" className="rounded-[4px] px-2 py-1 text-black/60 hover:bg-black/5">
+            audit
+          </Link>
           <Link href="/stats" className="rounded-[4px] px-2 py-1 text-black/60 hover:bg-black/5">
             stats
           </Link>

@@ -14,6 +14,25 @@ import { Textarea } from "@/app/components/ui/textarea";
 import { BADGES, BASE_CAP, bitesFor, capFor } from "@/lib/program";
 
 import { decideAction, type DecisionState } from "./actions";
+import { flushRecording, markRecording } from "./recorder";
+import { useReplayStatus } from "./ReplayStatus";
+
+// Every decision has to be on the desk recording: upload what's buffered first, and
+// don't decide if it can't get through. The server checks again (replayLive).
+// The replay shows the press as "submit", and a "refused" right after if it didn't go through.
+async function recordedDecide(prev: DecisionState, form: FormData): Promise<DecisionState> {
+  const shipId = form.get("ship_id");
+  markRecording("submit", { shipId, kind: form.get("kind") });
+  const r = await flushRecording();
+  if (!r.ok) {
+    markRecording("refused", { shipId, error: "recording" });
+    return { error: `Nothing was decided: the desk recording isn't reaching the server. ${r.error} Reload the page and try again.` };
+  }
+  form.set("replay_id", r.id);
+  const res = await decideAction(prev, form);
+  if (res.error) markRecording("refused", { shipId, error: res.error });
+  return res;
+}
 
 export default function DecisionForm({
   shipId,
@@ -34,7 +53,8 @@ export default function DecisionForm({
   // Set when the secondary check failed: the only way out is sending it back, with this prefilled.
   fraudMessage?: string;
 }) {
-  const [state, action, pending] = useActionState<DecisionState, FormData>(decideAction, { error: null });
+  const [state, action, pending] = useActionState<DecisionState, FormData>(recordedDecide, { error: null });
+  const replay = useReplayStatus();
   const maxHours = Math.round((claimedSeconds / 3600) * 10) / 10;
   const [hours, setHours] = useState(String(maxHours));
   const [badges, setBadges] = useState<Set<string>>(new Set(claimedBadges));
@@ -174,6 +194,17 @@ export default function DecisionForm({
             <Label htmlFor="internal_note">Justification</Label>
             <Textarea id="internal_note" name="internal_note" rows={2} />
           </div>
+
+          {replay.state === "failed" && (
+            <Alert variant="destructive">
+              <AlertCircle />
+              <AlertDescription>
+                <span>
+                  <span className="font-medium">The desk isn&apos;t being recorded.</span> {replay.error} Decisions are blocked until it&apos;s back; reloading usually fixes it.
+                </span>
+              </AlertDescription>
+            </Alert>
+          )}
 
           {state.error && (
             <Alert variant="destructive">

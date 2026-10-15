@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils";
 import ClaimKeeper from "./ClaimKeeper";
 import { FILTER_LABEL, SECONDARY_FILTERS, secondaryOf, type SecondaryFilter } from "./filter";
 import DecisionForm from "./DecisionForm";
+import { ReplayMark } from "./Recorder";
+import ReplayStatus from "./ReplayStatus";
 import Preview from "./Preview";
 import Repo from "./Repo";
 
@@ -57,7 +59,10 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
     <div className="desk flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Review</h1>
+          <h1 className="flex items-center gap-3 text-2xl font-semibold tracking-tight">
+            Review
+            <ReplayStatus />
+          </h1>
           <p className="text-sm text-muted-foreground">
             {showDone
               ? "Everything already decided, newest first."
@@ -165,6 +170,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
               <div className="flex min-w-0 flex-col gap-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
+                    <ReplayMark shipId={current.ship.id} number={current.ship.number} reviewing={!showDone && current.ship.state === "pending"} />
                     <h2 className="truncate text-xl font-semibold tracking-tight">{current.ship.title}</h2>
                     <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
                       <span className="font-mono">#{current.ship.number}</span>

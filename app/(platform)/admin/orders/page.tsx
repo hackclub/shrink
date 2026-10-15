@@ -21,6 +21,9 @@ export default async function AdminOrdersPage() {
             people
           </Link>
           <span className="rounded-[4px] bg-accent px-2 py-1">orders</span>
+          <Link href="/admin/audit" className="rounded-[4px] px-2 py-1 text-black/60 hover:bg-black/5">
+            audit
+          </Link>
         </nav>
       </div>
       <OrdersTable

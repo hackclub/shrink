@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -135,6 +136,8 @@ export const ships = pgTable(
     // Lapses if their tab stops renewing it; see claim() in lib/server/ships.ts.
     claimedBy: text("claimed_by").references(() => users.id),
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    // The desk recording (replay_sessions) the decision was made in.
+    replayId: text("replay_id"),
     createdAt: now("created_at"),
   },
   (t) => [
@@ -266,6 +269,75 @@ export const hackatimeProjectHistory = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.project] })],
 );
 
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
+
+// rrweb recordings of the review desk, one row per tab. The client makes the id and
+// uploads numbered chunks; a missing seq is a gap, and no endedAt means the tab was cut off.
+export const replaySessions = pgTable(
+  "replay_sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    userAgent: text("user_agent"),
+    startedAt: now("started_at"),
+    lastChunkAt: now("last_chunk_at"),
+    chunks: integer("chunks").notNull().default(0),
+    bytes: bigint("bytes", { mode: "number" }).notNull().default(0),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    // The last thing that went wrong on the client (recorder crash, failed uploads), as it reported it.
+    error: text("error"),
+    errorAt: timestamp("error_at", { withTimezone: true }),
+  },
+  (t) => [index("replay_sessions_user_idx").on(t.userId, t.startedAt), index("replay_sessions_started_idx").on(t.startedAt)],
+);
+
+// Gzipped JSON arrays of rrweb events. firstTs/lastTs are the event timestamps (ms).
+export const replayChunks = pgTable(
+  "replay_chunks",
+  {
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => replaySessions.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    data: bytea("data").notNull(),
+    events: integer("events").notNull(),
+    firstTs: bigint("first_ts", { mode: "number" }),
+    lastTs: bigint("last_ts", { mode: "number" }),
+    createdAt: now("created_at"),
+  },
+  (t) => [primaryKey({ columns: [t.sessionId, t.seq] })],
+);
+
+// Active time on the review desk, as the recorder measured it: gaps between
+// interactions shorter than the idle cutoff, credited to the ship open for review
+// (null when none was). Pulled out of replay chunks as they land, so each chunk's
+// rows are written exactly once.
+export const reviewActivity = pgTable(
+  "review_activity",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => replaySessions.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    shipId: text("ship_id"),
+    activeMs: integer("active_ms").notNull(),
+    // When the credited span started and ended, by the reviewer's clock.
+    fromAt: timestamp("from_at", { withTimezone: true }).notNull(),
+    toAt: timestamp("to_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index("review_activity_user_idx").on(t.userId, t.fromAt),
+    index("review_activity_ship_idx").on(t.shipId),
+    index("review_activity_session_idx").on(t.sessionId, t.seq),
+  ],
+);
+
 export type Verdict = {
   reviewerId: string;
   at: string;
@@ -279,5 +351,6 @@ export type Verdict = {
 export type User = typeof users.$inferSelect;
 export type HackatimeDay = typeof hackatimeDays.$inferSelect;
 export type Ship = typeof ships.$inferSelect;
+export type ReplaySession = typeof replaySessions.$inferSelect;
 export type Order = typeof orders.$inferSelect;
 export type LedgerEntry = typeof ledgerEntries.$inferSelect;

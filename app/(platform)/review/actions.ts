@@ -8,6 +8,7 @@ import { queueSync } from "@/lib/server/airtable";
 import { actionRole } from "@/lib/server/auth/current";
 import { loadShipAndAuthor, shipDecided } from "@/lib/server/effects";
 import { requestOrigin } from "@/lib/server/origin";
+import { replayLive } from "@/lib/server/replay";
 import { refresh, report } from "@/lib/server/secondary";
 import { repoFile } from "@/lib/server/scan";
 import { ShipError, claim, decide, release, shipById } from "@/lib/server/ships";
@@ -21,6 +22,10 @@ export async function decideAction(_prev: DecisionState, form: FormData): Promis
   const kind = str("kind");
   const nextId = str("next_id");
   const f = /^(passed|waiting|failed|unsent)$/.test(str("f")) ? `&f=${str("f")}` : "";
+  const replayId = str("replay_id");
+  if (!(await replayLive(reviewer.id, replayId).catch(() => false))) {
+    return { error: "Nothing was decided: this desk's recording hasn't reached the server. Reload the page and try again." };
+  }
 
   let held = false;
   try {
@@ -31,10 +36,11 @@ export async function decideAction(_prev: DecisionState, form: FormData): Promis
         badges: form.getAll("badge").map(String),
         message: str("message"),
         internalNote: str("internal_note"),
+        replayId,
       });
       held = ship.state === "pending";
     } else if (kind === "reject") {
-      await decide(reviewer, shipId, { kind: "reject", message: str("message"), internalNote: str("internal_note") });
+      await decide(reviewer, shipId, { kind: "reject", message: str("message"), internalNote: str("internal_note"), replayId });
     } else {
       return { error: "Pick approve or send back." };
     }
