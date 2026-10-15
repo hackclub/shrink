@@ -34,8 +34,8 @@ export const env = {
   SLACK_CHANNEL_ID: process.env.SLACK_CHANNEL_ID ?? "",
   // #shrink; participants are invited when they finish /welcome. Empty disables it.
   SLACK_PROGRAM_CHANNEL_ID: process.env.SLACK_PROGRAM_CHANNEL_ID ?? "C0AQTQMV2SJ",
-  // DMs to participants (ship decisions, order updates) are off unless SLACK_DMS=1.
-  SLACK_DMS: process.env.SLACK_DMS === "1" || process.env.SLACK_DMS === "true",
+  // DMs to participants (ship decisions, order updates) are on unless SLACK_DMS=0.
+  SLACK_DMS: process.env.SLACK_DMS !== "0" && process.env.SLACK_DMS !== "false",
 
   AIRTABLE_API_KEY: process.env.AIRTABLE_API_KEY ?? "",
   AIRTABLE_BASE_ID: process.env.AIRTABLE_BASE_ID ?? "",

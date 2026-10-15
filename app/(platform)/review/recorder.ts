@@ -10,9 +10,13 @@
 // review. Switching tabs counts the same way, so a quick look at the repo on GitHub
 // is still review time, but a longer trip away isn't. Those totals ride along in the recording as "active" events, so they get the
 // same retries and survive the same crashes; the server pulls them out on upload.
+//
+// The preview frame records itself and pings its own activity up (see frame-recorder.ts).
 import { gzipSync, strToU8 } from "fflate";
 
 import { ACTIVE_TAG, IDLE_MS, type ActivePayload } from "@/lib/review-time";
+
+import { FRAME_ACTIVITY, FRAME_KEY, FRAME_SNAPSHOT } from "./frame-recorder";
 
 export type ReplayState = "off" | "starting" | "ok" | "retrying" | "failed";
 export type ReplayStatus = { state: ReplayState; id: string | null; error: string | null; pending: number };
@@ -97,6 +101,9 @@ class Session {
   private ship: string | null = null;
   private credits = new Map<string, ActivePayload>();
   private readonly onActivity = () => this.touch(Date.now());
+  private readonly onFrameMessage = (e: MessageEvent) => {
+    if (e.data?.type === FRAME_ACTIVITY && e.data.key === FRAME_KEY) this.touch(Date.now());
+  };
   // Settles once the recorder is running (or has failed to start).
   started: Promise<void> = Promise.resolve();
 
@@ -115,7 +122,11 @@ class Session {
           this.buffer.push(e);
           // Full snapshots are the big ones; send each on its own so chunks stay small.
           if (e.type === FULL_SNAPSHOT || this.buffer.length >= MAX_EVENTS) this.cut();
+          // A full snapshot of the desk leaves the frames empty until they send their own.
+          if (e.type === FULL_SNAPSHOT) setTimeout(askFramesForSnapshot, 0);
         },
+        // The preview frame's own recorder posts its events here.
+        recordCrossOriginIframes: true,
         // A fresh full snapshot every few minutes, so a lost chunk only spoils a few minutes.
         checkoutEveryNms: 3 * 60_000,
         slimDOMOptions: "all",
@@ -129,6 +140,7 @@ class Session {
       this.stopRecord = stop;
       this.rr = record;
       for (const t of ACTIVITY) window.addEventListener(t, this.onActivity, { capture: true, passive: true });
+      window.addEventListener("message", this.onFrameMessage);
       this.lastAct = document.visibilityState === "visible" ? Date.now() : null;
       // The desk may have said which ship is open before we were running.
       this.ship = reviewing;
@@ -324,6 +336,7 @@ class Session {
     this.pause();
     this.writeCredits();
     for (const t of ACTIVITY) window.removeEventListener(t, this.onActivity, { capture: true });
+    window.removeEventListener("message", this.onFrameMessage);
     this.stopped = true;
     this.stopRecord?.();
     this.stopRecord = null;
@@ -348,6 +361,10 @@ class Session {
       (state === "failed" ? `Nothing has reached the server for ${Math.round((Date.now() - oldest!) / 1000)}s${why}.` : state === "retrying" ? `Upload failed${why}, retrying.` : null);
     set({ state, error, pending: this.queue.length });
   }
+}
+
+function askFramesForSnapshot() {
+  for (const f of document.querySelectorAll("iframe")) f.contentWindow?.postMessage({ type: FRAME_SNAPSHOT }, "*");
 }
 
 let current: Session | null = null;

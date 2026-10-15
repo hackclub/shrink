@@ -232,3 +232,15 @@ export async function sessionShips(sessionId: string) {
     ms: Number(r.ms),
   }));
 }
+
+// A reviewer's own running total, for the desk: all-time active time on the ships they
+// decided, the same count the audit page uses.
+export async function reviewerTotal(userId: string): Promise<{ ms: number; decisions: number }> {
+  const [r] = await db.execute<Record<string, unknown>>(sql`
+    with d as (${DECISIONS})
+    select count(*) as decisions,
+      coalesce(sum((select sum(a.active_ms) from review_activity a where a.user_id = d.decider and a.ship_id = d.ship_id)), 0) as ms
+    from d where d.decider = ${userId}
+  `);
+  return { ms: Number(r?.ms ?? 0), decisions: Number(r?.decisions ?? 0) };
+}

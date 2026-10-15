@@ -1,3 +1,4 @@
+import { reviewerTotal } from "@/lib/server/audit";
 import { requireRole } from "@/lib/server/auth/current";
 import { env } from "@/lib/server/env";
 import { fetchProjects } from "@/lib/server/hackatime";
@@ -53,6 +54,8 @@ export default async function ReviewPage({
   const live = current && !showDone ? fetchProjects(current.author.id).catch(() => null) : Promise.resolve(null);
   const repo = current?.ship.sourceUrl ? repoView(current.ship.sourceUrl).catch(() => null) : Promise.resolve(null);
 
+  const total = reviewerTotal(reviewer.id).catch(() => null);
+
   return (
     <Desk
       reviewer={reviewer}
@@ -68,6 +71,7 @@ export default async function ReviewPage({
       elsewhere={elsewhere}
       live={live}
       repo={repo}
+      total={total}
     />
   );
 }

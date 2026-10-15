@@ -33,10 +33,13 @@ export default function ShipForm({
   hackatime,
   initial,
   preselect,
+  bypass = false,
 }: {
   hackatime: HackatimeRow[] | null;
   initial: Initial | null;
   preselect: string | null;
+  // Admins skip the hours minimum and blocking scans, to try the flow.
+  bypass?: boolean;
 }) {
   const [state, action, pending] = useActionState<ShipFormState, FormData>(shipAction, { error: null });
   const [rawStep, setStep] = useState(0);
@@ -102,7 +105,7 @@ export default function ShipForm({
       ? "Hackatime needs fixing first"
       : picked.length === 0
         ? "pick at least one project"
-        : seconds < MIN_SHIP_SECONDS
+        : seconds < MIN_SHIP_SECONDS && !bypass
           ? `that's ${hm(seconds)}. ships need at least ${hm(MIN_SHIP_SECONDS)}.`
           : null;
 
@@ -286,7 +289,7 @@ export default function ShipForm({
         </section>
 
         <section hidden={step !== 3} aria-label="ship it">
-          <StepHead title={initial ? "ship it again?" : "ready to ship?"} />
+          <StepHead title={initial ? "ready to resubmit?" : "ready to ship?"} />
 
           <div className="mb-6">
             <ScanPanel input={scanInput} active={step === 3} onBlocked={setScanBlocked} />
@@ -302,8 +305,8 @@ export default function ShipForm({
 
           <div className="flex flex-wrap items-center justify-between gap-4 border-t-2 border-panel-border pt-5">
             <BackButton onClick={() => go(2)} />
-            <PixelButton type="submit" variant="dark" disabled={pending || furthest < 3 || scanBlocked !== false} className="text-[1.35rem]">
-              {pending ? "shipping…" : "ship it →"}
+            <PixelButton type="submit" variant="dark" disabled={pending || furthest < 3 || (scanBlocked !== false && !bypass)} className="text-[1.35rem]">
+              {pending ? (initial ? "resubmitting…" : "shipping…") : initial ? "resubmit →" : "ship it →"}
             </PixelButton>
           </div>
         </section>
@@ -466,7 +469,7 @@ function Label({
         <span className={`font-pixel text-[2.6rem] leading-none ${estimate ? "" : "text-black/25"}`}>≈ <Num value={estimate} /> BITES</span>
       </div>
       {estimate === 0 && (
-        <p className="px-5 pb-3 text-xs text-black/50">Under an hour earns 0 BITES. It's 1 per hour, rounded down (.9 rounds up), so keep building!</p>
+        <p className="px-5 pb-3 text-xs text-black/50">Under an hour earns 0 BITES. It&apos;s 1 per hour, rounded down (.9 rounds up), so keep building!</p>
       )}
       <Barcode value={uri} />
     </div>

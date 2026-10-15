@@ -84,6 +84,17 @@ async function gh(path: string, as: keyof typeof ACCEPT = "json"): Promise<Respo
   return fetch(`https://api.github.com${path}`, { headers, cache: "no-store", signal: AbortSignal.timeout(8_000) });
 }
 
+// Thrown for a GitHub response we can't use, with a message fit to show a person.
+class GitHubError extends Error {}
+
+function failure(res: Response): GitHubError {
+  const limited = (res.status === 403 || res.status === 429) && (res.headers.get("x-ratelimit-remaining") === "0" || res.headers.has("retry-after"));
+  if (!limited) return new GitHubError(`GitHub said ${res.status}. Try again in a bit.`);
+  const reset = Number(res.headers.get("x-ratelimit-reset")) * 1000 || Date.now() + Number(res.headers.get("retry-after") ?? 60) * 1000;
+  const mins = Math.max(1, Math.ceil((reset - Date.now()) / 60_000));
+  return new GitHubError(`GitHub rate limit hit${env.GITHUB_TOKEN ? "" : " (no GITHUB_TOKEN set)"}. Try again in ${mins} min.`);
+}
+
 function pickExcerpts(files: { path: string; size: number }[]): { path: string; size: number }[] {
   const score = (p: string) => (/(^|\/)(index|main|app|src)\b/i.test(p) ? 0 : 1) + (/\.html?$/i.test(p) ? 0 : 0.5);
   const out: { path: string; size: number }[] = [];
@@ -102,7 +113,7 @@ async function readRepo(owner: string, repo: string): Promise<Source> {
   const head = await gh(`/repos/${owner}/${repo}/commits/HEAD`, "sha");
   if (head.status === 404) return { kind: "missing", why: "GitHub says that repo doesn't exist, or it's private." };
   // 409 means an empty repo: nothing to snapshot, read it live.
-  if (!head.ok && head.status !== 409) throw new Error(`GitHub ${head.status}`);
+  if (!head.ok && head.status !== 409) throw failure(head);
   const sha = head.ok ? (await head.text()).trim() : null;
   if (!sha) return readRepoAt(owner, repo, null);
   let live: Source | null = null;
@@ -116,7 +127,7 @@ async function readRepo(owner: string, repo: string): Promise<Source> {
 async function readRepoAt(owner: string, repo: string, sha: string | null): Promise<Source> {
   const res = await gh(`/repos/${owner}/${repo}`);
   if (res.status === 404) return { kind: "missing", why: "GitHub says that repo doesn't exist, or it's private." };
-  if (!res.ok) throw new Error(`GitHub ${res.status}`);
+  if (!res.ok) throw failure(res);
   const meta = (await res.json()) as { html_url: string; default_branch: string; private: boolean };
   if (meta.private) return { kind: "missing", why: "The repo is private. Make it public so a reviewer can read it." };
 
@@ -124,17 +135,19 @@ async function readRepoAt(owner: string, repo: string, sha: string | null): Prom
   const ref = sha ?? meta.default_branch;
   const at = `ref=${encodeURIComponent(ref)}`;
   const [readmeRes, treeRes] = await Promise.all([
-    gh(`/repos/${owner}/${repo}/readme?${at}`, "raw"),
+    gh(`/repos/${owner}/${repo}/readme?${at}`, "raw").catch(() => null),
     gh(`/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`),
   ]);
-  const readme = readmeRes.ok ? await readmeRes.text() : null;
+  // An empty repo has no tree (404/409); anything else would cache a snapshot with no files.
+  if (!treeRes.ok && treeRes.status !== 404 && treeRes.status !== 409) throw failure(treeRes);
+  const readme = readmeRes?.ok ? await readmeRes.text() : null;
   const tree = treeRes.ok ? ((await treeRes.json()) as { tree?: { path: string; type: string; size?: number }[] }).tree ?? [] : [];
   const files = tree.filter((t) => t.type === "blob" && !SKIP_DIR.test(t.path)).map((t) => ({ path: t.path, size: t.size ?? 0 }));
 
   const excerpts = await Promise.all(
     pickExcerpts(files).map(async (f) => {
-      const r = await gh(`/repos/${owner}/${repo}/contents/${f.path.split("/").map(encodeURIComponent).join("/")}?${at}`, "raw");
-      return { path: f.path, text: r.ok ? await r.text() : "" };
+      const r = await gh(`/repos/${owner}/${repo}/contents/${f.path.split("/").map(encodeURIComponent).join("/")}?${at}`, "raw").catch(() => null);
+      return { path: f.path, text: r?.ok ? await r.text() : "" };
     }),
   );
   return { kind: "github", url: meta.html_url, sha, readme, files, excerpts: excerpts.filter((e) => e.text) };
@@ -183,7 +196,11 @@ export async function repoView(url: string): Promise<RepoView> {
   const parsed = parseRepo(url.trim());
   if (!parsed) return { kind: "unavailable", why: "That source link isn't a repo we can read." };
   if (parsed.host !== "github.com") return { kind: "unavailable", why: `Only GitHub repos can be browsed here. Open it on ${parsed.host}.` };
-  const src = await readSource(url.trim()).catch(() => null);
+  const src = await readSource(url.trim()).catch((e: unknown) => {
+    console.error("[scan] repo read failed", url, e);
+    return e instanceof GitHubError ? e.message : null;
+  });
+  if (typeof src === "string") return { kind: "unavailable", why: src };
   if (!src) return { kind: "unavailable", why: "GitHub didn't answer. Try again in a bit." };
   if (src.kind !== "github") return { kind: "unavailable", why: src.kind === "missing" ? src.why : "That repo can't be browsed here." };
   return { kind: "github", owner: parsed.owner, repo: parsed.repo, url: src.url, ref: src.sha ?? "HEAD", readme: src.readme, files: src.files };

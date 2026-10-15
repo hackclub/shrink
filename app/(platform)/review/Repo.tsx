@@ -110,7 +110,7 @@ function Browser({ shipId, repo, tab, onOpenFile }: { shipId: string; repo: Gh; 
 function Viewer({ path, file, loading, raw }: { path: string; file?: { text: string } | { error: string }; loading: boolean; raw: (p: string) => string }) {
   if (IMAGE.test(path)) {
     return (
-      <div className="flex flex-1 items-center justify-center overflow-auto bg-[repeating-conic-gradient(#f4f4f5_0_25%,white_0_50%)] bg-[length:16px_16px] p-4">
+      <div className="flex flex-1 items-center justify-center overflow-auto bg-[repeating-conic-gradient(#f4f4f5_0_25%,white_0_50%)] bg-[length:16px_16px] dark:bg-[repeating-conic-gradient(#27272a_0_25%,#18181b_0_50%)] p-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={raw(path)} alt={path} className="max-h-full max-w-full object-contain" />
       </div>

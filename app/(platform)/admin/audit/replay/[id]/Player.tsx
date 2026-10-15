@@ -16,6 +16,8 @@ type RRPlayer = {
 };
 
 const CUSTOM = 5;
+const INCREMENTAL = 3;
+const CANVAS_MUTATION = 9;
 // Start a jump this far before the moment, for context.
 const LEAD_MS = 5_000;
 
@@ -57,7 +59,16 @@ export default function Player({ id, focusShip, ships }: { id: string; focusShip
       const width = box.current.clientWidth;
       const p = new RRWebPlayer({
         target: box.current,
-        props: { events: events as never, width, height: Math.round(width * 0.58), autoPlay: false, skipInactive: true, showController: true, mouseTail: false },
+        props: {
+          events: events as never,
+          width,
+          height: Math.round(width * 0.58),
+          autoPlay: false,
+          skipInactive: true,
+          showController: true,
+          mouseTail: false,
+          plugins: [canvasFrames()] as never,
+        },
       }) as unknown as RRPlayer;
       player.current = p;
       p.addEventListener("ui-update-current-time", (e) => setNow(Number((e as { payload?: number }).payload ?? 0)));
@@ -146,4 +157,53 @@ export default function Player({ id, focusShip, ships }: { id: string; focusShip
       </aside>
     </div>
   );
+}
+
+type Replayer = { getMirror: () => { getNode: (id: number) => Node | null } };
+type Frame = { b64: string; type: string };
+
+// Canvas frames from the desk's preview (see review/frame-recorder.ts). rrweb only replays
+// these with UNSAFE_replayCanvas, which would let a recorded app's scripts run on this page,
+// so draw the images onto the replayed canvas ourselves. Each frame is a whole picture, so
+// when seeking only the latest per canvas matters.
+function canvasFrames() {
+  const pending = new Map<number, Frame>();
+  const drawn = new Map<number, number>();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return {
+    handler(e: { type: number; data?: { source?: number; id?: number; commands?: { property: string; args?: unknown[] }[] } }, _sync: boolean, { replayer }: { replayer: Replayer }) {
+      if (e.type !== INCREMENTAL || e.data?.source !== CANVAS_MUTATION || e.data.id === undefined) return;
+      const bitmap = e.data.commands?.find((c) => c.property === "drawImage")?.args?.[0] as { rr_type?: string; args?: { type?: string; data?: { base64?: string }[] }[] } | undefined;
+      const blob = bitmap?.rr_type === "ImageBitmap" ? bitmap.args?.[0] : undefined;
+      const b64 = blob?.data?.[0]?.base64;
+      if (!b64) return;
+      pending.set(e.data.id, { b64, type: blob?.type ?? "image/webp" });
+      timer ??= setTimeout(() => {
+        timer = null;
+        for (const [id, f] of pending) {
+          const n = (drawn.get(id) ?? 0) + 1;
+          drawn.set(id, n);
+          void draw(replayer, id, f, () => drawn.get(id) === n);
+        }
+        pending.clear();
+      }, 0);
+    },
+  };
+}
+
+async function draw(replayer: Replayer, id: number, f: Frame, current: () => boolean) {
+  const node = replayer.getMirror().getNode(id) as HTMLCanvasElement | null;
+  if (node?.nodeName !== "CANVAS") return;
+  try {
+    const bytes = Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0));
+    const bmp = await createImageBitmap(new Blob([bytes], { type: f.type }));
+    // A later frame got there first.
+    if (!current()) return bmp.close();
+    const ctx = node.getContext("2d");
+    ctx?.clearRect(0, 0, node.width, node.height);
+    ctx?.drawImage(bmp, 0, 0);
+    bmp.close();
+  } catch {
+    // A bad frame just isn't shown.
+  }
 }

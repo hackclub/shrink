@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq, inArray, sql, type Column } from "drizzle-orm";
+import { and, eq, inArray, ne, sql, type Column } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { after } from "next/server";
 
@@ -223,7 +223,8 @@ async function loadShips(ids?: string[]) {
     .from(ships)
     .innerJoin(users, eq(ships.userId, users.id))
     .leftJoin(reviewers, eq(ships.reviewerId, reviewers.id))
-    .where(ids ? inArray(ships.id, ids) : undefined)
+    // Admin ships are tests of the flow.
+    .where(and(ne(users.role, "admin"), ids ? inArray(ships.id, ids) : undefined))
     .orderBy(ships.createdAt);
   const prevIds = [...new Set(rows.map((r) => r.ship.reshipOf).filter((v): v is string => Boolean(v)))];
   const prev = prevIds.length

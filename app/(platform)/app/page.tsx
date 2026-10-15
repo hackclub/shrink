@@ -8,7 +8,7 @@ import { fetchProjects } from "@/lib/server/hackatime";
 import { addressesFor } from "@/lib/server/orders";
 import { requestOrigin } from "@/lib/server/origin";
 import { referralsOf } from "@/lib/server/referrals";
-import { shipsOf } from "@/lib/server/ships";
+import { canResubmit, shipsOf } from "@/lib/server/ships";
 import { EXAMPLES } from "@/lib/examples";
 
 import ProjectCard from "@/app/components/ProjectCard";
@@ -45,6 +45,10 @@ export default async function Home() {
     requestOrigin(),
   ]);
 
+  const resubmitted = new Set(ships.map((s) => s.reshipOf));
+  // A sent-back ship that was resubmitted is replaced by its resubmission.
+  const shown = ships.filter((s) => !resubmitted.has(s.id));
+  const returned = ships.filter((s) => canResubmit(s, resubmitted.has(s.id)));
   const started = hasStarted();
   const left = timeLeft(PROGRAM_END);
   const tracked = (projects ?? []).reduce((s, p) => s + p.seconds, 0);
@@ -93,10 +97,18 @@ export default async function Home() {
   return (
     <>
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <H1>
+        <H1
+          sub={
+            started && !left
+              ? returned.length > 0
+                ? `a reviewer sent ${returned.length === 1 ? "one of your ships" : `${returned.length} of your ships`} back. you can still fix and resubmit, and resubmissions get reviewed first.`
+                : "new ships aren't being taken, but anything sent back can still be fixed and resubmitted."
+              : undefined
+          }
+        >
           {!started ? `starts ${startLabel}` : left ?? "shipping is closed"}
         </H1>
-        {left && (
+        {(left || user.role === "admin") && (
           <PixelLink href="/app/ship" className="mb-[clamp(1.25rem,2vw,32px)] text-[1.1rem]">
             ship a project →
           </PixelLink>
@@ -136,11 +148,11 @@ export default async function Home() {
         </section>
       )}
 
-      {ships.length > 0 && (
+      {shown.length > 0 && (
         <section className={`${todo.length > 0 ? "mt-[clamp(1.5rem,3vw,56px)] " : ""}border-t-4 border-rule pt-4`}>
           <h2 className="text-[1.25rem] font-semibold tracking-tight">your ships</h2>
           <ul className="mt-4 grid grid-cols-1 gap-[clamp(12px,1.25vw,24px)] sm:grid-cols-2 lg:grid-cols-3">
-            {ships.map((s) => (
+            {shown.map((s) => (
               <li key={s.id}>
                 <Link href={`/app/ships/${s.id}`} className="card block overflow-hidden transition-transform hover:-translate-y-0.5">
                   <div className="relative m-[10px] mb-0 aspect-[268/200] overflow-hidden rounded-[8px] bg-ink">
@@ -165,6 +177,11 @@ export default async function Home() {
                     </p>
                   </div>
                 </Link>
+                {returned.includes(s) && (
+                  <PixelLink href={`/app/ship?from=${s.id}`} variant="dark" className="mt-3">
+                    resubmit →
+                  </PixelLink>
+                )}
               </li>
             ))}
           </ul>
@@ -172,7 +189,7 @@ export default async function Home() {
       )}
 
       {!user.referralRevokedAt && (
-        <section className={`${todo.length > 0 || ships.length > 0 ? "mt-[clamp(1.5rem,3vw,56px)] " : ""}border-t-4 border-rule pt-4`}>
+        <section className={`${todo.length > 0 || shown.length > 0 ? "mt-[clamp(1.5rem,3vw,56px)] " : ""}border-t-4 border-rule pt-4`}>
           <h2 className="text-[1.25rem] font-semibold tracking-tight">invite friends</h2>
           <p className="mt-1 max-w-[60ch] font-medium leading-snug text-black/60">
             get {BITE_LABEL} for each friend you&apos;ve invited to SHRINK! only if they&apos;ve shipped a project :p

@@ -15,7 +15,7 @@ export default function NavLinks({ links }: { links: { href: string; label: stri
             href={l.href}
             aria-current={active ? "page" : undefined}
             className={`shrink-0 rounded-[4px] px-2 py-1 transition-colors ${
-              active ? "bg-accent text-black" : "text-black/60 hover:bg-black/5 hover:text-black"
+              active ? "bg-accent text-black" : "text-foreground/60 hover:bg-foreground/5 hover:text-foreground"
             }`}
           >
             {l.label}

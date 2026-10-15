@@ -34,49 +34,65 @@ async function channel(text: string) {
   await slack("chat.postMessage", { channel: env.SLACK_CHANNEL_ID, text, unfurl_links: false, unfurl_media: false });
 }
 
-async function dm(user: Pick<User, "slackId">, text: string) {
+// `text` is the notification preview; `blocks`, if given, is what shows in the DM.
+async function dm(user: Pick<User, "slackId">, text: string, blocks?: unknown[]) {
   if (!env.SLACK_DMS || !user.slackId) return;
-  await slack("chat.postMessage", { channel: user.slackId, text, unfurl_links: false, unfurl_media: false });
+  await slack("chat.postMessage", { channel: user.slackId, text, blocks, unfurl_links: false, unfurl_media: false });
 }
+
+const section = (text: string) => ({ type: "section", text: { type: "mrkdwn", text } });
 
 const who = (u: Pick<User, "displayName" | "slackId">) => (u.slackId ? `<@${u.slackId}>` : esc(u.displayName));
 
+// Admin ships are tests of the flow, so they stay out of the channel (DMs still go).
+const test = (author: User) => author.role === "admin";
+
 export async function shipShipped(ship: Ship, author: User, origin: string) {
+  if (test(author)) return;
   await channel(
     `${who(author)} shipped *${esc(ship.title)}* (${ship.bytes}b, ${hm(ship.claimedSeconds)} logged). <${origin}/review?s=${ship.id}|review it>`,
   );
 }
 
 export async function shipUnshipped(ship: Ship, author: User) {
+  if (test(author)) return;
   await channel(`${who(author)} unshipped *${esc(ship.title)}*, so it's out of the queue.`);
 }
 
 export async function shipDecided(ship: Ship, author: User, origin: string) {
   const link = `<${origin}/app/ships/${ship.id}|${esc(ship.title)}>`;
+  const quote = ship.publicMessage ? `\n> ${esc(ship.publicMessage).replace(/\n/g, "\n> ")}` : "";
   if (ship.state === "approved") {
     await Promise.all([
-      channel(`${who(author)}'s ${link} was approved: ${ship.awardedBites} BITES.`),
+      !test(author) && channel(`${who(author)}'s ${link} was approved: ${ship.awardedBites} BITES.`),
       dm(
         author,
         ship.awardedBites
-          ? `your ship *${esc(ship.title)}* was approved for *${ship.awardedBites} BITES*! 🎉\n${
-              ship.publicMessage ? `> ${esc(ship.publicMessage)}\n` : ""
-            }spend them at ${origin}/app/shop`
-          : `your ship *${esc(ship.title)}* was approved, but for *0 BITES* since it's under an hour. BITES are 1 per hour, rounded down (.9 rounds up). keep building!${
-              ship.publicMessage ? `\n> ${esc(ship.publicMessage)}` : ""
-            }`,
+          ? `your ship *${esc(ship.title)}* was approved for *${ship.awardedBites} BITES*! 🎉${quote}`
+          : `your ship *${esc(ship.title)}* was approved, but for *0 BITES* since it's under an hour. BITES are 1 per hour, rounded down (.9 rounds up). keep building!${quote}`,
       ),
     ]);
     await referralPaid(author, ship, origin);
   } else if (ship.state === "rejected") {
+    // A failed fraud check can't be fixed by resubmitting, so it gets no button.
+    const fraud = ship.secondaryState === "failed";
+    const text = fraud
+      ? `your ship *${esc(ship.title)}* was sent back.${quote}`
+      : `your ship *${esc(ship.title)}* is almost there! it just needs a quick fix before it can be approved. here's what the reviewer said:${quote}`;
     await Promise.all([
-      channel(`${who(author)}'s ${link} was sent back.`),
-      dm(
-        author,
-        `your ship *${esc(ship.title)}* was sent back.\n${
-          ship.publicMessage ? `> ${esc(ship.publicMessage)}\n` : ""
-        }fix it up and ship again at ${origin}/app/ships/${ship.id}`,
-      ),
+      !test(author) && channel(`${who(author)}'s ${link} was sent back.`),
+      fraud
+        ? dm(author, text)
+        : dm(author, text, [
+            section(text),
+            section("everything you submitted is saved, so just fix that one thing and hit resubmit. it goes straight back into review and you'll be prioritised."),
+            {
+              type: "actions",
+              elements: [
+                { type: "button", style: "primary", text: { type: "plain_text", text: "resubmit" }, url: `${origin}/app/ship?from=${ship.id}` },
+              ],
+            },
+          ]),
     ]);
   }
 }

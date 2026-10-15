@@ -4,7 +4,7 @@ import { and, desc, eq, isNotNull, isNull, ne, not, or, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core";
 
 import { blocking } from "@/lib/scan";
-import { BADGE_BY_SLUG, MAX_URI_BYTES, MIN_SHIP_SECONDS, REPO_URL, bitesFor, byteLength, hm } from "@/lib/program";
+import { BADGE_BY_SLUG, MAX_URI_BYTES, MIN_SHIP_SECONDS, REPO_URL, bitesFor, byteLength, hm, shippingClosed } from "@/lib/program";
 
 import { db, type Tx } from "./db/client";
 import { ships, users, type Ship, type User, type Verdict } from "./db/schema";
@@ -66,11 +66,18 @@ export async function createShip(user: User, input: ShipInput): Promise<Ship> {
   if (projects.length === 0) throw new ShipError("Pick the Hackatime project(s) you built this in.");
   const badges = [...new Set(input.claimedBadges)].filter((b) => BADGE_BY_SLUG.has(b));
 
-  let reshipOf: string | null = null;
+  // Admins skip the checks below so they can try the whole flow, including after close.
+  const admin = user.role === "admin";
+  if (!input.reshipOf && shippingClosed() && !admin) {
+    throw new ShipError("Shipping is closed. You can still resubmit a ship that was sent back.");
+  }
+
+  let reshipOf: Ship | null = null;
   if (input.reshipOf) {
     const [prev] = await db.select().from(ships).where(and(eq(ships.id, input.reshipOf), eq(ships.userId, user.id))).limit(1);
     if (!prev || prev.state !== "rejected") throw new ShipError("You can only re-ship a ship that was sent back.");
-    reshipOf = prev.id;
+    if (prev.secondaryState === "failed") throw new ShipError("This one can't be resubmitted.");
+    reshipOf = prev;
   }
 
   const used = await projectsInUse(user.id);
@@ -78,12 +85,12 @@ export async function createShip(user: User, input: ShipInput): Promise<Ship> {
   if (clash) throw new ShipError(`"${clash}" is already part of another ship of yours.`);
 
   const scan = await fullScan(user, { dataUri, sourceUrl, hackatimeProjects: projects });
-  const stop = blocking(scan)[0];
+  const stop = admin ? null : blocking(scan)[0];
   if (stop) throw new ShipError(`${stop.label}: ${stop.detail ?? "didn't pass"}`);
 
-  const seconds = await fetchSeconds(user.id, projects);
+  const seconds = (await fetchSeconds(user.id, projects)) ?? (admin ? 0 : null);
   if (seconds === null) throw new ShipError("Hackatime couldn't be read for your account. Is your activity set to visible?");
-  if (seconds < MIN_SECONDS) throw new ShipError(`Hackatime only has ${Math.round(seconds / 60)} minutes on those projects. Log at least 30.`);
+  if (seconds < MIN_SECONDS && !admin) throw new ShipError(`Hackatime only has ${Math.round(seconds / 60)} minutes on those projects. Log at least 30.`);
 
   // The checks above are slow, so two submits at once could both pass them. Re-check
   // under a per-user lock so the same Hackatime hours can't land in two ships.
@@ -92,6 +99,10 @@ export async function createShip(user: User, input: ShipInput): Promise<Ship> {
     const used = await projectsInUse(user.id, undefined, tx);
     const clash = projects.find((p) => used.has(p));
     if (clash) throw new ShipError(`"${clash}" is already part of another ship of yours.`);
+    if (reshipOf) {
+      const [again] = await tx.select({ id: ships.id }).from(ships).where(eq(ships.reshipOf, reshipOf.id)).limit(1);
+      if (again) throw new ShipError("You already resubmitted this one.");
+    }
     const [ship] = await tx
       .insert(ships)
       .values({
@@ -104,8 +115,10 @@ export async function createShip(user: User, input: ShipInput): Promise<Ship> {
         hackatimeProjects: projects,
         claimedSeconds: seconds,
         claimedBadges: badges,
-        reshipOf,
+        reshipOf: reshipOf?.id ?? null,
         scan,
+        // A resubmission's first submission was already checked, and admin ships are tests.
+        ...((reshipOf || admin) && { secondaryState: "passed" as const, secondaryScore: reshipOf?.secondaryScore ?? null, secondaryNote: reshipOf?.secondaryNote ?? null }),
       })
       .returning();
     return ship;
@@ -120,6 +133,8 @@ export async function unship(user: User, shipId: string): Promise<Ship> {
     const [ship] = await tx.select().from(ships).where(eq(ships.id, shipId)).for("update").limit(1);
     if (!ship || ship.userId !== user.id) throw new ShipError("That ship doesn't exist.");
     if (ship.state !== "pending") throw new ShipError("Only a ship that's still in review can be unshipped.");
+    // Unshipping deletes it, and a new ship can't be made once shipping closes.
+    if (!ship.reshipOf && shippingClosed() && user.role !== "admin") throw new ShipError("Shipping is closed, so this one stays in review.");
     if (ship.verdict) throw new ShipError("A reviewer already got to this one, so it can't be unshipped.");
     // The row lock holds off settle() while the secondary check is asked to let go.
     if (ship.secondaryId) {
@@ -314,6 +329,14 @@ export async function shipsOf(userId: string) {
   return db.select().from(ships).where(eq(ships.userId, userId)).orderBy(desc(ships.createdAt));
 }
 
+// A sent-back ship can be resubmitted once, unless it failed the fraud check.
+export const canResubmit = (ship: Ship, resubmitted: boolean) => ship.state === "rejected" && ship.secondaryState !== "failed" && !resubmitted;
+
+export async function wasResubmitted(id: string): Promise<boolean> {
+  const [row] = await db.select({ id: ships.id }).from(ships).where(eq(ships.reshipOf, id)).limit(1);
+  return Boolean(row);
+}
+
 export async function shipById(id: string) {
   const [row] = await db.select().from(ships).where(eq(ships.id, id)).limit(1);
   return row ?? null;
@@ -398,7 +421,7 @@ export async function showcase(limit = 9) {
 export type QueueTab = "queue" | "done" | "check";
 
 // The queue is everything nobody has decided, with failed secondary checks first
-// (held calls included) since they're waiting on an admin. Done includes
+// (held calls included) since they're waiting on an admin, then resubmissions. Done includes
 // calls still held for the second pass or the secondary check. Check is the admins'
 // second pass: reviewers' calls nobody has confirmed yet.
 export async function reviewQueue(tab: QueueTab = "queue"): Promise<QueueItem[]> {
@@ -431,7 +454,7 @@ export async function reviewQueue(tab: QueueTab = "queue"): Promise<QueueItem[]>
           ? unchecked
           : and(or(ne(ships.state, "pending"), isNotNull(ships.verdict)), not(failed!)),
     )
-    .orderBy(desc(sql`coalesce(${ships.secondaryState} = 'failed', false)`), ships.createdAt);
+    .orderBy(desc(sql`coalesce(${ships.secondaryState} = 'failed', false)`), desc(isNotNull(ships.reshipOf)), ships.createdAt);
   await fillSlackHandles(rows.flatMap((r) => (r.claimer ? [r.author, r.claimer] : [r.author])));
   return rows;
 }

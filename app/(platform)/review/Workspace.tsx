@@ -8,6 +8,7 @@ import { AppFrame, decodeHtml } from "@/app/components/ui/bits";
 import type { RepoView } from "@/lib/server/scan";
 import { cn } from "@/lib/utils";
 
+import { loadFrameRecorder } from "./frame-recorder";
 import { Lines, RepoPanes } from "./Repo";
 
 type Tab = "preview" | "source" | "readme" | "files";
@@ -40,6 +41,8 @@ export default function Workspace({
   const [tab, setTab] = useState<Tab>("preview");
   const [run, setRun] = useState(0);
   const [copied, setCopied] = useState(false);
+  // The recorder that goes in the frame; the app waits for it so its start is on the recording.
+  const [recorder, setRecorder] = useState<string | null>(null);
   const [navigating, startNav] = useTransition();
   const html = useMemo(() => decodeHtml(uri), [uri]);
   const enabled = (t: Tab) => (t === "readme" || t === "files" ? !!repo : true);
@@ -85,6 +88,14 @@ export default function Workspace({
   }, [sized]);
 
   useEffect(() => {
+    let live = true;
+    loadFrameRecorder().then((s) => live && setRecorder(s));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!copied) return;
     const t = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(t);
@@ -115,7 +126,7 @@ export default function Workspace({
             className={cn(
               "shrink-0 font-medium whitespace-nowrap transition-colors disabled:opacity-40",
               tab === t.id
-                ? "relative z-10 h-8 rounded-t-lg border border-b-0 bg-white px-3.5 text-foreground"
+                ? "relative z-10 h-8 rounded-t-lg border border-b-0 bg-card px-3.5 text-foreground"
                 : "mb-1 h-7 rounded-md px-3 text-muted-foreground enabled:hover:bg-muted enabled:hover:text-foreground",
             )}
           >
@@ -144,7 +155,7 @@ export default function Workspace({
       <div className="relative min-h-0 flex-1">
         {/* Kept mounted so switching tabs doesn't restart the app. */}
         <div ref={pane} className={cn("absolute inset-0 bg-white", tab !== "preview" && "invisible")}>
-          {sized && <AppFrame key={run} uri={uri} title={title} className="size-full" interactive focus={tab === "preview"} />}
+          {recorder !== null && sized && <AppFrame key={run} uri={uri} title={title} className="size-full" head={recorder} interactive focus={tab === "preview"} />}
         </div>
         {tab === "source" && (
           <div className="absolute inset-0 flex flex-col">

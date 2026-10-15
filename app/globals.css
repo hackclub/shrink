@@ -1,7 +1,17 @@
 @import "tailwindcss";
 
-/* The site is light-only. Without this, dark: styles (in the shadcn parts) follow the OS setting. */
-@custom-variant dark (&:where(.dark, .dark *));
+/* The site is light-only, except the review desk, which has a dark mode (data-desk-theme, set
+   in app/(platform)/review/layout.tsx). Without this, dark: styles would follow the OS setting everywhere. */
+@custom-variant dark {
+  &:where([data-desk-theme="dark"], [data-desk-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where([data-desk-theme="system"], [data-desk-theme="system"] *) {
+      @slot;
+    }
+  }
+}
 
 :root {
   --background: #f3f3fa;
@@ -598,7 +608,8 @@ textarea.input {
   width: 100%;
   height: 100%;
   border: 0;
-  background: #000;
+  /* A page with no background of its own is white, like it would be in a browser tab. */
+  background: #fff;
 }
 
 .queue-row {
@@ -669,6 +680,66 @@ textarea.input {
     border-color: var(--border);
   }
 }
+/* Dark desk. On :root so the header around it goes dark too; the desk's own overrides
+   (card, accent, border) follow. Twice: once picked outright, once following the OS. */
+:root:has([data-desk-theme="dark"]) {
+  color-scheme: dark;
+  --background: #0f0f13;
+  --foreground: #ececf1;
+  --panel: #18181d;
+  --panel-border: #34343c;
+  --rule: #3a3a42;
+  --card: #16161a;
+  --popover: #1c1c21;
+  --popover-foreground: #ececf1;
+  --muted-foreground: rgba(255, 255, 255, 0.55);
+  --border: #2e2e35;
+  --primary: #ececf1;
+  --primary-foreground: #0e0f0d;
+  --secondary: #232329;
+  --secondary-foreground: #ececf1;
+  --muted: #232329;
+  --accent-foreground: #ececf1;
+  --card-foreground: #ececf1;
+  --destructive: #f2555a;
+  --input: #3a3a42;
+  --ring: #ececf1;
+  .desk {
+    --card: #16161a;
+    --accent: #232329;
+    --border: #2e2e35;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  :root:has([data-desk-theme="system"]) {
+    color-scheme: dark;
+    --background: #0f0f13;
+    --foreground: #ececf1;
+    --panel: #18181d;
+    --panel-border: #34343c;
+    --rule: #3a3a42;
+    --card: #16161a;
+    --popover: #1c1c21;
+    --popover-foreground: #ececf1;
+    --muted-foreground: rgba(255, 255, 255, 0.55);
+    --border: #2e2e35;
+    --primary: #ececf1;
+    --primary-foreground: #0e0f0d;
+    --secondary: #232329;
+    --secondary-foreground: #ececf1;
+    --muted: #232329;
+    --accent-foreground: #ececf1;
+    --card-foreground: #ececf1;
+    --destructive: #f2555a;
+    --input: #3a3a42;
+    --ring: #ececf1;
+    .desk {
+      --card: #16161a;
+      --accent: #232329;
+      --border: #2e2e35;
+    }
+  }
+}
 /* shadcn parts draw their own focus ring; skip the site-wide outline on top of it. */
 .desk [data-slot]:focus-visible {
   outline: none;
@@ -688,7 +759,4 @@ textarea.input {
   body:has(.desk) footer {
     display: none;
   }
-}
-.desk .app-frame {
-  background: #fff;
 }

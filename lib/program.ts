@@ -13,6 +13,9 @@ export const PROGRAM_END = process.env.NEXT_PUBLIC_PROGRAM_END ?? "2026-10-14T05
 
 export const instant = (d: string): Date => new Date(/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T00:00:00` : d);
 
+// After this only resubmissions of sent-back ships are taken.
+export const shippingClosed = () => Date.now() >= instant(PROGRAM_END).getTime();
+
 export type Badge = {
   slug: string;
   title: string;

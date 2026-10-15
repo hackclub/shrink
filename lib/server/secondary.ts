@@ -69,7 +69,7 @@ async function post(ship: Ship, author: Author, origin: string) {
 export async function submit(shipId: string, origin: string): Promise<boolean> {
   if (!secondaryEnabled()) return false;
   const row = await loadShipAndAuthor(shipId);
-  if (!row || row.ship.secondaryId) return false;
+  if (!row || row.ship.secondaryId || row.ship.secondaryState) return false;
   const { ship, author } = row;
   const json = await post(ship, author, origin);
   if (!json) return false;
@@ -163,10 +163,11 @@ export async function sync(origin: string) {
   if (!secondaryEnabled()) return { skipped: "SECONDARY_CHECK_KEY isn't set" };
 
   // Includes ships approved before the check existed; new ones are sent when shipped.
+  // A ship created with a state (resubmissions, admin tests) never needs sending.
   const unsent = await db
     .select({ id: ships.id })
     .from(ships)
-    .where(and(ne(ships.state, "rejected"), isNull(ships.secondaryId)));
+    .where(and(ne(ships.state, "rejected"), isNull(ships.secondaryId), isNull(ships.secondaryState)));
   let sent = 0;
   for (const s of unsent) if (await submit(s.id, origin)) sent++;
 

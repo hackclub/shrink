@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
 
 import { AppFrame, ByteMeter, H1, Hours, PixelLink, StatePill, when } from "@/app/components/ui/bits";
-import { BADGE_BY_SLUG, capFor } from "@/lib/program";
+import { BADGE_BY_SLUG, capFor, shippingClosed } from "@/lib/program";
 import { hasRole, requireUser } from "@/lib/server/auth/current";
-import { shipById } from "@/lib/server/ships";
+import { canResubmit, shipById, wasResubmitted } from "@/lib/server/ships";
 
 import CopyUri from "./CopyUri";
 import Shipped from "./Shipped";
@@ -24,6 +24,7 @@ export default async function ShipPage({
   const insider = mine || hasRole(user, "reviewer");
   if (!ship || (!insider && ship.state !== "approved")) notFound();
   const { shipped } = await searchParams;
+  const resubmit = mine && canResubmit(ship, await wasResubmitted(ship.id));
 
   return (
     <>
@@ -47,7 +48,7 @@ export default async function ShipPage({
         </div>
 
         <div className="flex flex-col gap-5">
-          {ship.state === "pending" && mine && (
+          {ship.state === "pending" && mine && (ship.reshipOf || !shippingClosed() || user.role === "admin") && (
             <Unship
               id={ship.id}
               reshipOf={ship.reshipOf}
@@ -73,7 +74,7 @@ export default async function ShipPage({
                 </p>
               )}
               {ship.state === "approved" && ship.awardedBites === 0 && (
-                <p className="mt-2 text-xs text-black/50">0 BITES because it's under an hour. BITES are 1 per hour, rounded down (.9 rounds up).</p>
+                <p className="mt-2 text-xs text-black/50">0 BITES because it&apos;s under an hour. BITES are 1 per hour, rounded down (.9 rounds up).</p>
               )}
               {ship.awardedBadges && ship.awardedBadges.length > 0 && (
                 <ul className="mt-2 flex flex-wrap gap-1.5">
@@ -85,10 +86,13 @@ export default async function ShipPage({
                 </ul>
               )}
               {insider && ship.publicMessage && <p className="mt-3 whitespace-pre-wrap font-medium leading-relaxed">{ship.publicMessage}</p>}
-              {ship.state === "rejected" && mine && (
+              {resubmit && (
                 <div className="mt-4">
+                  <p className="mb-3 font-medium leading-relaxed text-white/70">
+                    everything you submitted is saved. fix what the reviewer asked and resubmit. it goes back into review first in line.
+                  </p>
                   <PixelLink href={`/app/ship?from=${ship.id}`} variant="light">
-                    fix &amp; ship again →
+                    resubmit →
                   </PixelLink>
                 </div>
               )}

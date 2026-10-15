@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Loader2, Undo2 } from "lucide-react";
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 
 import { Button } from "@/app/components/ui/button";
 import { Checkbox } from "@/app/components/ui/checkbox";
@@ -15,6 +15,38 @@ import { decideAction, type DecisionState } from "./actions";
 import { flushRecording, markRecording } from "./recorder";
 import { useReplayStatus } from "./ReplayStatus";
 
+// What's typed is kept per ship in localStorage, so clicking onto another ship (or a reload)
+// doesn't lose a half-written message or justification. Gone once the decision goes through.
+type Draft = { kind: "approve" | "reject"; hours: string; badges: string[]; message: string; note: string; at: number };
+const DRAFT = "desk-draft:";
+const DRAFT_TTL = 14 * 24 * 3600 * 1000;
+
+function loadDraft(shipId: string): Draft | null {
+  try {
+    // Prune drafts for ships that got decided elsewhere.
+    for (const k of Object.keys(localStorage)) {
+      if (!k.startsWith(DRAFT)) continue;
+      const d = JSON.parse(localStorage.getItem(k) ?? "null") as Draft | null;
+      if (!d || Date.now() - d.at > DRAFT_TTL) localStorage.removeItem(k);
+    }
+    return JSON.parse(localStorage.getItem(DRAFT + shipId) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(shipId: string, d: Omit<Draft, "at">) {
+  try {
+    localStorage.setItem(DRAFT + shipId, JSON.stringify({ ...d, at: Date.now() }));
+  } catch {}
+}
+
+function clearDraft(shipId: string) {
+  try {
+    localStorage.removeItem(DRAFT + shipId);
+  } catch {}
+}
+
 // Every decision has to be on the desk recording: upload what's buffered first, and
 // don't decide if it can't get through. The server checks again (replayLive).
 // The replay shows the press as "submit", and a "refused" right after if it didn't go through.
@@ -27,8 +59,15 @@ async function recordedDecide(prev: DecisionState, form: FormData): Promise<Deci
     return { error: `Nothing was decided: the desk recording isn't reaching the server. ${r.error} Reload the page and try again.` };
   }
   form.set("replay_id", r.id);
+  // Cleared up front: a decision that goes through redirects, so nothing after the call runs.
+  const id = String(shipId);
+  const draft = loadDraft(id);
+  clearDraft(id);
   const res = await decideAction(prev, form);
-  if (res.error) markRecording("refused", { shipId, error: res.error });
+  if (res.error) {
+    markRecording("refused", { shipId, error: res.error });
+    if (draft) saveDraft(id, draft);
+  }
   return res;
 }
 
@@ -63,6 +102,32 @@ export default function DecisionForm({
   const [hours, setHours] = useState(String(priorHours ?? maxHours));
   const [badges, setBadges] = useState<Set<string>>(new Set(prior?.kind === "approve" ? prior.badges : claimedBadges));
   const [kind, setKind] = useState<"approve" | "reject">(fraudMessage ? "reject" : (prior?.kind ?? "approve"));
+  // Controlled, so neither a refused submit (React resets the form) nor a ship switch wipes them.
+  const [message, setMessage] = useState(fraudMessage ?? prior?.message ?? "");
+  const [note, setNote] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  // localStorage only exists in the browser, so the draft comes in after hydration.
+  useEffect(() => {
+    const d = loadDraft(shipId);
+    /* eslint-disable react-hooks/set-state-in-effect -- restoring browser-only state after hydration */
+    if (d) {
+      if (!fraudMessage) setKind(d.kind);
+      setHours(d.hours);
+      setBadges(new Set(d.badges));
+      setMessage(d.message);
+      setNote(d.note);
+    }
+    setLoaded(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [shipId, fraudMessage]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    // Nothing typed yet: no draft, so an untouched ship doesn't leave one behind.
+    if (!note && message === (fraudMessage ?? prior?.message ?? "")) clearDraft(shipId);
+    else saveDraft(shipId, { kind, hours, badges: [...badges], message, note });
+  }, [loaded, shipId, kind, hours, badges, message, note, fraudMessage, prior?.message]);
 
   const h = Number(hours);
   const bites = Number.isFinite(h) && h > 0 ? bitesFor(Math.min(h, maxHours) * 3600, [...badges]) : 0;
@@ -132,8 +197,8 @@ export default function DecisionForm({
                 </span>
               </p>
             </div>
-            {h > 0 && bites === 0 && (
-              <p className="text-xs text-muted-foreground">Under 0.9h earns 0 BITES. It's 1 per hour, rounded down (.9 rounds up).</p>
+            {approving && h > 0 && bites === 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">Under 0.9h earns 0 BITES. It&apos;s 1 per hour, rounded down (.9 rounds up).</p>
             )}
 
             <fieldset>
@@ -181,10 +246,19 @@ export default function DecisionForm({
           required
           rows={3}
           maxLength={2000}
-          defaultValue={fraudMessage ?? prior?.message}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
           className="min-h-0 text-sm"
         />
-        <Textarea name="internal_note" aria-label="Justification" placeholder="Justification (internal)" rows={2} className="min-h-0 text-sm" />
+        <Textarea
+          name="internal_note"
+          aria-label="Justification"
+          placeholder="Justification (internal)"
+          rows={2}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="min-h-0 text-sm"
+        />
 
         {replay.state === "failed" && (
           <p role="alert" className="rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">
@@ -200,7 +274,7 @@ export default function DecisionForm({
       </div>
 
       {/* Pinned, so the button is reachable however long the inspector gets. */}
-      <div className="sticky bottom-0 mt-auto border-t bg-white px-4 py-3">
+      <div className="sticky bottom-0 mt-auto border-t bg-card px-4 py-3">
         <Button
           type="submit"
           disabled={pending || isOwn}
@@ -225,7 +299,7 @@ function Seg({ active, onClick, children }: { active: boolean; onClick: () => vo
       onClick={onClick}
       className={cn(
         "inline-flex h-7 items-center justify-center gap-1.5 rounded text-xs font-medium transition-colors",
-        active ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+        active ? "bg-card text-foreground shadow-sm dark:bg-input" : "text-muted-foreground hover:text-foreground",
       )}
     >
       {children}

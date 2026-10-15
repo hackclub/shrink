@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/app/components/ui/avatar";
 import { Hours, when } from "@/app/components/ui/bits";
 import { BADGE_BY_SLUG, MAX_URI_BYTES, capFor } from "@/lib/program";
+import { duration } from "@/lib/review-time";
 import type { Check as ScanCheck } from "@/lib/scan";
 import type { RepoView } from "@/lib/server/scan";
 import type { Ship, User } from "@/lib/server/db/schema";
@@ -16,6 +17,7 @@ import ClaimKeeper from "./ClaimKeeper";
 import { FILTER_LABEL, SECONDARY_FILTERS, secondaryOf, type SecondaryFilter } from "./filter";
 import DecisionForm from "./DecisionForm";
 import QueueLink from "./QueueLink";
+import ThemeToggle from "./ThemeToggle";
 import { ReplayMark } from "./Recorder";
 import Workspace from "./Workspace";
 
@@ -37,11 +39,13 @@ export type DeskProps = {
   // Streamed: the desk shows without waiting on Hackatime or GitHub.
   live: Promise<{ name: string; seconds: number }[] | null>;
   repo: Promise<RepoView | null>;
+  // The reviewer's all-time active time on ships they decided.
+  total: Promise<{ ms: number; decisions: number } | null>;
 };
 
 // The desk itself, with no data fetching of its own, so it can be previewed with fake ships.
 // On wide screens it fills the viewport: queue, workspace and inspector each scroll on their own.
-export default function Desk({ base = "/review", reviewer, queue, filter, counts, current, tab, decided, lockedBy, holder, next, elsewhere, live, repo }: DeskProps) {
+export default function Desk({ base = "/review", reviewer, queue, filter, counts, current, tab, decided, lockedBy, holder, next, elsewhere, live, repo, total }: DeskProps) {
   const isAdmin = reviewer.role === "admin";
   const showDone = tab === "done";
   const query = (p: { s?: string; tab?: QueueTab; f?: SecondaryFilter }) => {
@@ -58,7 +62,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
   const nextHref = idx >= 0 && idx < queue.length - 1 ? href(queue[idx + 1].ship.id) : null;
 
   return (
-    <div className="desk grid grid-cols-1 border bg-white text-sm lg:-mx-[var(--gutter)] lg:-mt-[clamp(1.5rem,3vw,48px)] lg:min-h-0 lg:flex-1 lg:grid-cols-[256px_minmax(0,1fr)_360px] lg:border-x-0 lg:border-t-0 2xl:grid-cols-[288px_minmax(0,1fr)_420px]">
+    <div className="desk grid grid-cols-1 border bg-card text-sm lg:-mx-[var(--gutter)] lg:-mt-[clamp(1.5rem,3vw,48px)] lg:min-h-0 lg:flex-1 lg:grid-cols-[256px_minmax(0,1fr)_360px] lg:border-x-0 lg:border-t-0 2xl:grid-cols-[288px_minmax(0,1fr)_420px]">
       {/* Queue */}
       <aside className="flex min-h-0 flex-col border-b lg:border-r lg:border-b-0">
         <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
@@ -74,6 +78,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
             Decided
           </TabLink>
           <span className="ml-auto pr-1 font-mono text-xs text-muted-foreground">{queue.length}</span>
+          <ThemeToggle />
         </div>
         {counts && (
           <div className="flex shrink-0 flex-wrap gap-x-0.5 gap-y-1 border-b px-2 py-1.5">
@@ -140,6 +145,14 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
             })}
           </ol>
         )}
+        <p
+          className="shrink-0 border-t px-3 py-1.5 text-xs text-muted-foreground"
+          title="Active time on ships you decided, the same count admins see. Idle time and ships you skipped don't count."
+        >
+          <Suspense fallback={<span className="animate-pulse">Your review time —</span>}>
+            <TotalTime total={total} />
+          </Suspense>
+        </p>
         <p className="hidden shrink-0 border-t px-3 py-1.5 text-xs text-muted-foreground lg:block">
           <Kbd>J</Kbd> <Kbd>K</Kbd> next / prev · <Kbd>1</Kbd>–<Kbd>4</Kbd> tabs
         </p>
@@ -152,7 +165,7 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
           {/* Workspace */}
           <section className="flex min-h-0 min-w-0 flex-col border-b lg:border-b-0">
             {decided && (
-              <p role="status" className="flex shrink-0 items-center gap-1.5 border-b bg-emerald-50 px-4 py-1.5 text-xs text-emerald-800">
+              <p role="status" className="flex shrink-0 items-center gap-1.5 border-b bg-emerald-50 px-4 py-1.5 text-xs text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
                 <Check className="size-3.5" />
                 {decided === "held" ? "Approved. BITES and the DM go out once the secondary check passes." : "Decision sent. The author gets a Slack DM."}
               </p>
@@ -374,6 +387,17 @@ function Outcome({
   );
 }
 
+async function TotalTime({ total }: { total: DeskProps["total"] }) {
+  const t = await total;
+  if (!t) return <>Your review time —</>;
+  return (
+    <>
+      Your review time <span className="font-mono text-foreground tabular-nums">{duration(t.ms)}</span>
+      {` · ${t.decisions} decided`}
+    </>
+  );
+}
+
 async function LiveTime({ ship, live }: { ship: Ship; live: DeskProps["live"] }) {
   return <TimeRows ship={ship} live={await live} />;
 }
@@ -451,19 +475,19 @@ function StateText({ ship, isAdmin }: { ship: Ship; isAdmin: boolean }) {
       ? ["Fraud", "text-destructive"]
       : awaitingCheck(ship)
         ? verdictKind(ship.verdict!) === "reject"
-          ? [isAdmin ? "Send back?" : "Sent back", isAdmin ? "text-amber-700" : "text-muted-foreground"]
-          : [isAdmin ? "Approve?" : "Approved", isAdmin ? "text-amber-700" : "text-emerald-700"]
+          ? [isAdmin ? "Send back?" : "Sent back", isAdmin ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"]
+          : [isAdmin ? "Approve?" : "Approved", isAdmin ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"]
         : ship.state === "pending" && ship.verdict
-          ? ["Held", "text-amber-700"]
+          ? ["Held", "text-amber-700 dark:text-amber-400"]
           : ship.state === "approved"
-            ? ["Approved", "text-emerald-700"]
+            ? ["Approved", "text-emerald-700 dark:text-emerald-400"]
             : ship.state === "rejected"
               ? ["Sent back", "text-muted-foreground"]
               : ["In review", "text-muted-foreground"];
   return <span className={cn("text-xs font-medium", tone)}>{label}</span>;
 }
 
-const DOT: Record<string, string> = { passed: "bg-emerald-500", waiting: "bg-amber-400", failed: "bg-destructive", unsent: "bg-neutral-300" };
+const DOT: Record<string, string> = { passed: "bg-emerald-500", waiting: "bg-amber-400", failed: "bg-destructive", unsent: "bg-neutral-300 dark:bg-neutral-600" };
 
 function SecondaryDot({ ship }: { ship: Ship }) {
   const s = secondaryOf(ship);
@@ -478,7 +502,7 @@ function SecondarySummary({ ship }: { ship: Ship }) {
     <div className={cn(failed && "-mx-2 rounded bg-destructive/5 px-2 py-1.5")}>
       <p className="flex items-center justify-between gap-2">
         <span>Secondary check</span>
-        <span className={cn("text-xs font-medium", failed ? "text-destructive" : ship.secondaryState === "passed" ? "text-emerald-700" : "text-muted-foreground")}>
+        <span className={cn("text-xs font-medium", failed ? "text-destructive" : ship.secondaryState === "passed" ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")}>
           {{ waiting: "Waiting", passed: "Passed", failed: "Failed" }[ship.secondaryState]}
           {ship.secondaryScore != null && <span className="ml-1.5 font-mono">{ship.secondaryScore}/10</span>}
           {ship.secondarySeconds != null && (
@@ -493,7 +517,7 @@ function SecondarySummary({ ship }: { ship: Ship }) {
   );
 }
 
-const CHECK_TONE = { pass: "text-emerald-700", warn: "text-amber-700", fail: "text-destructive", skip: "text-muted-foreground" };
+const CHECK_TONE = { pass: "text-emerald-700 dark:text-emerald-400", warn: "text-amber-700 dark:text-amber-400", fail: "text-destructive", skip: "text-muted-foreground" };
 
 function ScanSummary({ checks }: { checks: ScanCheck[] }) {
   const flagged = checks.filter((c) => c.status !== "pass");
@@ -501,7 +525,7 @@ function ScanSummary({ checks }: { checks: ScanCheck[] }) {
     <div>
       <p className="flex items-center justify-between gap-2">
         <span>Pre-ship scan</span>
-        <span className={cn("font-mono text-xs font-medium", flagged.some((c) => c.status === "fail") ? "text-destructive" : flagged.length ? "text-amber-700" : "text-emerald-700")}>
+        <span className={cn("font-mono text-xs font-medium", flagged.some((c) => c.status === "fail") ? "text-destructive" : flagged.length ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400")}>
           {checks.length - flagged.length}/{checks.length}
         </span>
       </p>

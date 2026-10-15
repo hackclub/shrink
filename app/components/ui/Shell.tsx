@@ -45,7 +45,7 @@ export default function Shell({ user, bites, hasOrders, children }: Props) {
             >
               {bites} BITES
             </Link>
-            <span className="hidden text-sm font-medium text-black/60 sm:inline">{user.displayName}</span>
+            <span className="hidden text-sm font-medium text-foreground/60 sm:inline">{user.displayName}</span>
             <form action="/api/auth/signout" method="post">
               <button type="submit" className={`${pixelButtonClass} text-[0.75rem]`}>
                 sign out
