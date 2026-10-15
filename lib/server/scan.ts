@@ -171,6 +171,41 @@ function readSource(url: string): Promise<Source> {
   });
 }
 
+// What the review desk shows of a ship's repo: the README and the file tree, at
+// the commit the snapshot was taken (usually the current HEAD).
+export type RepoView =
+  | { kind: "github"; owner: string; repo: string; url: string; ref: string; readme: string | null; files: { path: string; size: number }[] }
+  | { kind: "unavailable"; why: string };
+
+export async function repoView(url: string): Promise<RepoView> {
+  const parsed = parseRepo(url.trim());
+  if (!parsed) return { kind: "unavailable", why: "That source link isn't a repo we can read." };
+  if (parsed.host !== "github.com") return { kind: "unavailable", why: `Only GitHub repos can be browsed here. Open it on ${parsed.host}.` };
+  const src = await readSource(url.trim()).catch(() => null);
+  if (!src) return { kind: "unavailable", why: "GitHub didn't answer. Try again in a bit." };
+  if (src.kind !== "github") return { kind: "unavailable", why: src.kind === "missing" ? src.why : "That repo can't be browsed here." };
+  return { kind: "github", owner: parsed.owner, repo: parsed.repo, url: src.url, ref: src.sha ?? "HEAD", readme: src.readme, files: src.files };
+}
+
+const MAX_VIEW_BYTES = 300_000;
+
+// One file of a ship's repo, raw. Only paths in the snapshot's tree are fetched.
+export async function repoFile(url: string, ref: string, path: string): Promise<{ text: string } | { error: string }> {
+  const view = await repoView(url);
+  if (view.kind !== "github") return { error: view.why };
+  if (ref !== view.ref) return { error: "The repo changed since this page loaded. Reload to see the new version." };
+  const file = view.files.find((f) => f.path === path);
+  if (!file) return { error: "That file isn't in the repo." };
+  if (file.size > MAX_VIEW_BYTES) return { error: `Too big to show here (${file.size.toLocaleString()} B). Open it on GitHub.` };
+  return remember(`file:${view.owner}/${view.repo}@${ref}:${path}`, async () => {
+    const r = await gh(`/repos/${view.owner}/${view.repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(ref)}`, "raw");
+    if (!r.ok) return { error: `GitHub said ${r.status}.` };
+    const buf = new Uint8Array(await r.arrayBuffer());
+    if (buf.subarray(0, 8000).includes(0)) return { error: "Binary file. Open it on GitHub." };
+    return { text: new TextDecoder().decode(buf) };
+  });
+}
+
 export function forgetSource(url: string): void {
   cache.delete(`src:${url.trim()}`);
 }
