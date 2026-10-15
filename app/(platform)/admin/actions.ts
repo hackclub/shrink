@@ -43,7 +43,6 @@ export async function adjustAction(_prev: AdminState, form: FormData): Promise<A
   // Made when the form opens, so a double-click or a retry posts once.
   const nonce = str(form, "nonce");
   if (!/^[0-9a-f-]{36}$/i.test(nonce)) return { error: "Reload the page and try again." };
-  if (userId === admin.id) return { error: "Get a colleague to change your own BITES." };
   if (!Number.isInteger(amount) || amount === 0) return { error: "Amount has to be a whole non-zero number of BITES." };
   if (Math.abs(amount) > MAX_ADJUST) return { error: `At most ${MAX_ADJUST} BITES either way at a time.` };
   if (!reason) return { error: "Say why." };
