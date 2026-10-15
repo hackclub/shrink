@@ -163,10 +163,12 @@ function readSource(url: string): Promise<Source> {
     const { host, owner, repo } = parsed;
     if (host === "github.com") return readRepo(owner, repo);
 
-    const res = await fetch(`https://${host}/${owner}/${repo}`, { redirect: "follow", cache: "no-store", signal: AbortSignal.timeout(8_000) }).catch(
+    // Redirects aren't followed: one could point this server at an internal address.
+    // A redirect still counts as the repo existing (hosts redirect renamed repos).
+    const res = await fetch(`https://${host}/${owner}/${repo}`, { redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(8_000) }).catch(
       () => null,
     );
-    if (!res || !res.ok) return { kind: "missing", why: `That repo didn't load${res ? ` (${res.status})` : ""}. Is it public?` };
+    if (!res || res.status < 200 || res.status >= 400) return { kind: "missing", why: "That repo didn't load. Is it public?" };
     return { kind: "elsewhere" };
   });
 }
