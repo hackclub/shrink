@@ -9,7 +9,8 @@ import { actionRole } from "@/lib/server/auth/current";
 import { loadShipAndAuthor, shipDecided } from "@/lib/server/effects";
 import { requestOrigin } from "@/lib/server/origin";
 import { refresh, report } from "@/lib/server/secondary";
-import { ShipError, claim, decide, release } from "@/lib/server/ships";
+import { repoFile } from "@/lib/server/scan";
+import { ShipError, claim, decide, release, shipById } from "@/lib/server/ships";
 
 export type DecisionState = { error: string | null };
 
@@ -69,6 +70,14 @@ export async function decideAction(_prev: DecisionState, form: FormData): Promis
 export async function claimAction(shipId: string): Promise<{ ok: true } | { ok: false; by: string }> {
   const reviewer = await actionRole("reviewer");
   return claim(reviewer, shipId);
+}
+
+// The repo browser on the desk opens files through this, scoped to the ship's own repo.
+export async function repoFileAction(shipId: string, ref: string, path: string): Promise<{ text: string } | { error: string }> {
+  await actionRole("reviewer");
+  const ship = await shipById(shipId);
+  if (!ship?.sourceUrl) return { error: "This ship has no source link." };
+  return repoFile(ship.sourceUrl, ref, path);
 }
 
 export async function releaseAction(shipId: string): Promise<void> {

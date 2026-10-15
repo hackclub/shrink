@@ -1,6 +1,7 @@
 import { requireRole } from "@/lib/server/auth/current";
 import { env } from "@/lib/server/env";
 import { fetchProjects } from "@/lib/server/hackatime";
+import { repoView } from "@/lib/server/scan";
 import { claim, reviewQueue, type QueueItem } from "@/lib/server/ships";
 
 import Desk from "./Desk";
@@ -45,7 +46,10 @@ export default async function ReviewPage({
   const next = idx >= 0 ? (queue.slice(idx + 1).find((q) => !heldByOther(q)) ?? null) : null;
   const elsewhere = queue.find((q) => q.ship.id !== current?.ship.id && !heldByOther(q)) ?? null;
 
-  const live = current && !showDone ? await fetchProjects(current.author.id).catch(() => null) : null;
+  const [live, repo] = await Promise.all([
+    current && !showDone ? fetchProjects(current.author.id).catch(() => null) : null,
+    current?.ship.sourceUrl ? repoView(current.ship.sourceUrl) : null,
+  ]);
   const liveSeconds = live
     ? live.filter((p) => current!.ship.hackatimeProjects.includes(p.name)).reduce((a, p) => a + p.seconds, 0)
     : null;
@@ -65,6 +69,7 @@ export default async function ReviewPage({
       elsewhere={elsewhere}
       live={live}
       liveSeconds={liveSeconds}
+      repo={repo}
     />
   );
 }

@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/app
 import { Separator } from "@/app/components/ui/separator";
 import { BADGE_BY_SLUG, MAX_URI_BYTES, capFor } from "@/lib/program";
 import type { Check } from "@/lib/scan";
+import type { RepoView } from "@/lib/server/scan";
 import type { Ship, User } from "@/lib/server/db/schema";
 import { FRAUD_MESSAGE, type QueueItem } from "@/lib/server/ships";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,7 @@ import ClaimKeeper from "./ClaimKeeper";
 import { FILTER_LABEL, SECONDARY_FILTERS, secondaryOf, type SecondaryFilter } from "./filter";
 import DecisionForm from "./DecisionForm";
 import Preview from "./Preview";
+import Repo from "./Repo";
 
 export type DeskProps = {
   base?: string;
@@ -35,10 +37,11 @@ export type DeskProps = {
   elsewhere: QueueItem | null;
   live: { name: string; seconds: number }[] | null;
   liveSeconds: number | null;
+  repo?: RepoView | null;
 };
 
 // The desk itself, with no data fetching, so it can be previewed with fake ships.
-export default function Desk({ base = "/review", reviewer, queue, filter, counts, current, showDone, decided, lockedBy, holder, next, elsewhere, live, liveSeconds }: DeskProps) {
+export default function Desk({ base = "/review", reviewer, queue, filter, counts, current, showDone, decided, lockedBy, holder, next, elsewhere, live, liveSeconds, repo }: DeskProps) {
   const isAdmin = reviewer.role === "admin";
   const query = (p: { s?: string; tab?: boolean; f?: SecondaryFilter }) => {
     const q = new URLSearchParams();
@@ -260,6 +263,13 @@ export default function Desk({ base = "/review", reviewer, queue, filter, counts
 
                 <Outcome base={base} filter={filter} current={current} reviewer={reviewer} lockedBy={lockedBy} next={next} elsewhere={elsewhere} isAdmin={isAdmin} />
               </div>
+
+              {/* Full width: code needs the room more than the side column does. */}
+              {repo && (
+                <div className="min-w-0 xl:col-span-2">
+                  <Repo shipId={current.ship.id} repo={repo} />
+                </div>
+              )}
             </div>
           )}
         </div>
