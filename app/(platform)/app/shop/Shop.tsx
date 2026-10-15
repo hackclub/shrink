@@ -202,7 +202,7 @@ function OrderDialog({
 
           <div>
             <label className="label" htmlFor="note">
-              anything we should know?{reward.digital ? " (e.g. the email to send it to)" : ""}
+              anything we should know?
             </label>
             <input id="note" name="note" maxLength={500} className="input" />
           </div>
