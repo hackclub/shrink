@@ -106,15 +106,13 @@ export default function People({ people, selfId }: { people: Person[]; selfId: s
                   )}
                 </td>
                 <td className="px-3 py-2 text-right">
-                  {p.id !== selfId && (
-                    <button
-                      type="button"
-                      onClick={() => setAdjusting({ person: p, nonce: crypto.randomUUID() })}
-                      className="text-sm font-medium underline decoration-1 underline-offset-[0.2em] hover:decoration-2"
-                    >
-                      ± BITES
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setAdjusting({ person: p, nonce: crypto.randomUUID() })}
+                    className="text-sm font-medium underline decoration-1 underline-offset-[0.2em] hover:decoration-2"
+                  >
+                    ± BITES
+                  </button>
                 </td>
               </tr>
             ))}
