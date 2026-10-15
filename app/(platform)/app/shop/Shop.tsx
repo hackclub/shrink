@@ -250,7 +250,7 @@ function OrderDialog({
 
           <div>
             <label className="label" htmlFor="note">
-              {reward.digital ? "where should we send it? (e.g. an email)" : "anything we should know?"}
+              anything we should know?
             </label>
             <input id="note" name="note" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} className="input" />
           </div>
