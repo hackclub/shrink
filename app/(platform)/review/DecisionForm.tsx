@@ -80,6 +80,7 @@ export default function DecisionForm({
   claimedSeconds,
   claimedBadges,
   isOwn,
+  isAdmin,
   fraudMessage,
 }: {
   shipId: string;
@@ -92,6 +93,8 @@ export default function DecisionForm({
   claimedSeconds: number;
   claimedBadges: string[];
   isOwn: boolean;
+  // Admins can award past the Hackatime hours, with a justification.
+  isAdmin: boolean;
   // Set when the secondary check failed: the only way out is sending it back, with this prefilled.
   fraudMessage?: string;
 }) {
@@ -130,9 +133,10 @@ export default function DecisionForm({
   }, [loaded, shipId, kind, hours, badges, message, note, fraudMessage, prior?.message]);
 
   const h = Number(hours);
-  const bites = Number.isFinite(h) && h > 0 ? bitesFor(Math.min(h, maxHours) * 3600, [...badges]) : 0;
+  const bites = Number.isFinite(h) && h > 0 ? bitesFor((isAdmin ? h : Math.min(h, maxHours)) * 3600, [...badges]) : 0;
   const cap = capFor([...badges]);
   const approving = kind === "approve";
+  const over = isAdmin && approving && h * 3600 > claimedSeconds + 180;
 
   return (
     <form action={action} className="flex flex-1 flex-col">
@@ -174,7 +178,7 @@ export default function DecisionForm({
                     type="number"
                     step="0.1"
                     min="0.1"
-                    max={maxHours}
+                    max={isAdmin ? undefined : maxHours}
                     required
                     value={hours}
                     onChange={(e) => setHours(e.target.value)}
@@ -197,6 +201,9 @@ export default function DecisionForm({
                 </span>
               </p>
             </div>
+            {over && (
+              <p className="mt-2 text-xs text-muted-foreground">More than Hackatime shows. As an admin you can award it, but say why in the justification.</p>
+            )}
             {approving && h > 0 && bites === 0 && (
               <p className="mt-2 text-xs text-muted-foreground">Under 0.9h earns 0 BITES. It&apos;s 1 per hour, rounded down (.9 rounds up).</p>
             )}
@@ -253,7 +260,8 @@ export default function DecisionForm({
         <Textarea
           name="internal_note"
           aria-label="Justification"
-          placeholder="Justification (internal)"
+          placeholder={over ? "Justification (internal, required: why more than Hackatime shows)" : "Justification (internal)"}
+          required={over}
           rows={2}
           value={note}
           onChange={(e) => setNote(e.target.value)}

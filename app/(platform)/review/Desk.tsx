@@ -331,6 +331,7 @@ function Outcome({
           claimedSeconds={ship.claimedSeconds}
           claimedBadges={ship.claimedBadges}
           isOwn={author.id === reviewer.id && !isAdmin}
+          isAdmin={isAdmin}
           fraudMessage={failed ? FRAUD_MESSAGE : undefined}
         />
       </>

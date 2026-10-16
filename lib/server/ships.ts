@@ -255,11 +255,14 @@ export async function decide(reviewer: User, shipId: string, decision: Decision)
     const hours = Number(decision.awardedHours);
     if (!Number.isFinite(hours) || hours <= 0) throw new ShipError("Award more than zero hours, or reject.");
     const awardedSeconds = Math.round(hours * 3600);
-    if (awardedSeconds > ship.claimedSeconds + 180) {
+    // Only an admin can award past what Hackatime shows, and has to say why.
+    const over = awardedSeconds > ship.claimedSeconds + 180;
+    if (over && !admin) {
       throw new ShipError(`Hackatime only shows ${(ship.claimedSeconds / 3600).toFixed(1)}h. You can't award more than that.`);
     }
+    if (over && !decision.internalNote.trim()) throw new ShipError("Awarding more than Hackatime shows: say why in the justification.");
     const badges = [...new Set(decision.badges)].filter((b) => BADGE_BY_SLUG.has(b));
-    const seconds = Math.min(awardedSeconds, ship.claimedSeconds);
+    const seconds = over ? awardedSeconds : Math.min(awardedSeconds, ship.claimedSeconds);
     const verdict: Verdict = {
       kind: "approve",
       reviewerId: by,
