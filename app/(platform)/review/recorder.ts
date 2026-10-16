@@ -92,6 +92,9 @@ class Session {
   private report: string | null = null;
   private stopRecord: (() => void) | null = null;
   private rr: typeof import("@rrweb/record").record | null = null;
+  // rrweb refuses custom events until its first full snapshot is done, so marks wait here till then.
+  private live = false;
+  private marks: [string, unknown][] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
   private waiters: (() => void)[] = [];
@@ -124,9 +127,13 @@ class Session {
           if (e.type === FULL_SNAPSHOT || this.buffer.length >= MAX_EVENTS) this.cut();
           // A full snapshot of the desk leaves the frames empty until they send their own.
           if (e.type === FULL_SNAPSHOT) setTimeout(askFramesForSnapshot, 0);
+          // rrweb marks itself recording right after this snapshot, in the same task.
+          if (e.type === FULL_SNAPSHOT && !this.live) queueMicrotask(() => this.goLive());
         },
         // The preview frame's own recorder posts its events here.
         recordCrossOriginIframes: true,
+        // The default waits for window load, which the preview frame can hold up for ages.
+        recordAfter: "DOMContentLoaded",
         // A fresh full snapshot every few minutes, so a lost chunk only spoils a few minutes.
         checkoutEveryNms: 3 * 60_000,
         slimDOMOptions: "all",
@@ -160,9 +167,20 @@ class Session {
     this.update();
   }
 
+  private goLive() {
+    if (this.stopped) return;
+    this.live = true;
+    for (const [tag, payload] of this.marks.splice(0)) this.addMark(tag, payload);
+  }
+
   addMark(tag: string, payload: unknown) {
+    if (!this.stopRecord) return;
+    if (!this.live) {
+      this.marks.push([tag, payload]);
+      return;
+    }
     try {
-      if (this.stopRecord) this.rr?.addCustomEvent(tag, payload);
+      this.rr?.addCustomEvent(tag, payload);
     } catch (e) {
       this.note(`couldn't add ${tag} marker: ${String((e as Error)?.message ?? e)}`);
     }
@@ -203,7 +221,8 @@ class Session {
 
   // Write credited time into the recording, so it's uploaded with everything else.
   private writeCredits() {
-    if (!this.credits.size || !this.rr || !this.stopRecord) return;
+    // Until rrweb is live, credits keep adding up here instead.
+    if (!this.credits.size || !this.rr || !this.stopRecord || !this.live) return;
     const out = [...this.credits.values()];
     this.credits.clear();
     for (const c of out) this.addMark(ACTIVE_TAG, c);
