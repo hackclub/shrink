@@ -142,6 +142,8 @@ export const ships = pgTable(
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     // The desk recording (replay_sessions) the decision was made in.
     replayId: text("replay_id"),
+    // When the ship was filed to the unified YSWS table. Filed once, then left to Airtable.
+    yswsFiledAt: timestamp("ysws_filed_at", { withTimezone: true }),
     createdAt: now("created_at"),
   },
   (t) => [

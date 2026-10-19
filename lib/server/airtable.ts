@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, inArray, ne, sql, type Column } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql, type Column } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { after } from "next/server";
 
@@ -18,8 +18,8 @@ import { STAGING_ADDRESS } from "./staging";
 import { tokenBinding } from "./users";
 
 // Users, Ships and Orders are mirrors: every sync overwrites them from Postgres, keyed on "ID".
-// YSWS Project Submission is created once per approved ship and then left alone, because
-// reviewers and the unified YSWS automation edit those records in Airtable.
+// YSWS Project Submission is created once per approved ship (tracked by ships.ysws_filed_at) and
+// then never written again, because reviewers and the unified YSWS automation edit those records.
 
 type Fields = Record<string, unknown>;
 
@@ -77,19 +77,6 @@ async function upsert(table: string, records: Fields[], key: string): Promise<Ma
     for (const r of res.records) ids.set(String(r.fields[key]), r.id);
   }
   return ids;
-}
-
-async function existingKeys(table: string, key: string): Promise<Set<string>> {
-  const keys = new Set<string>();
-  let offset: string | undefined;
-  do {
-    const q = new URLSearchParams({ pageSize: "100", "fields[]": key });
-    if (offset) q.set("offset", offset);
-    const res = await call<{ records: Rec[]; offset?: string }>("GET", table, undefined, `?${q}`);
-    for (const r of res.records) if (r.fields[key]) keys.add(String(r.fields[key]));
-    offset = res.offset;
-  } while (offset);
-  return keys;
 }
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
@@ -396,6 +383,35 @@ async function yswsFields({ ship: s, author: a, reviewer: r }: ShipRow, origin: 
   return fields;
 }
 
+// Each approved ship is filed exactly once. Claiming ysws_filed_at first means overlapping syncs
+// can't both file it, and nothing here ever writes to a submission record after it's created.
+async function fileYsws(shipRows: ShipRow[], origin: string): Promise<number> {
+  const candidates = shipRows.filter((r) => r.ship.state === "approved" && !r.ship.yswsFiledAt).map((r) => r.ship.id);
+  if (!candidates.length) return 0;
+  const claimed = await db
+    .update(ships)
+    .set({ yswsFiledAt: new Date() })
+    .where(and(inArray(ships.id, candidates), isNull(ships.yswsFiledAt)))
+    .returning({ id: ships.id });
+  if (!claimed.length) return 0;
+  const ids = new Set(claimed.map((c) => c.id));
+  try {
+    const todo = shipRows.filter((r) => ids.has(r.ship.id));
+    const records: Fields[] = [];
+    for (const r of todo) records.push(await yswsFields(r, origin));
+    for (let i = 0; i < records.length; i += 10) {
+      await call("POST", T.ysws(), { records: records.slice(i, i + 10).map((fields) => ({ fields })), typecast: true });
+      for (const r of todo.slice(i, i + 10)) ids.delete(r.ship.id);
+    }
+    return records.length;
+  } finally {
+    // Whatever didn't get filed goes back for the next sync.
+    if (ids.size) {
+      await db.update(ships).set({ yswsFiledAt: null }).where(inArray(ships.id, [...ids])).catch(() => {});
+    }
+  }
+}
+
 // ---- entry points ----------------------------------------------------------------------------
 
 export type SyncTargets = { users?: string[]; ships?: string[]; orders?: string[] };
@@ -421,17 +437,7 @@ async function run(t: SyncTargets & { all?: boolean }, origin: string) {
     "ID",
   );
 
-  const approved = shipRows.filter((r) => r.ship.state === "approved");
-  let filed = 0;
-  if (approved.length) {
-    const have = await existingKeys(T.ysws(), "Shrink Ship ID");
-    const todo = approved.filter((r) => !have.has(r.ship.id));
-    const records: Fields[] = [];
-    for (const r of todo) records.push(await yswsFields(r, origin));
-    // Upsert rather than create, so a sync racing the approval can't file the same ship twice.
-    await upsert(T.ysws(), records, "Shrink Ship ID");
-    filed = records.length;
-  }
+  const filed = await fileYsws(shipRows, origin);
   return { users: userRows.length, ships: shipRows.length, orders: orderRows.length, ysws: filed };
 }
 
