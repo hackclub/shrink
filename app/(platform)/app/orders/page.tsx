@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { H1, PixelLink, when } from "@/app/components/ui/bits";
 import { requireUser } from "@/lib/server/auth/current";
-import { ordersOf } from "@/lib/server/orders";
+import { ordersOf, refundPending } from "@/lib/server/orders";
 
 const LABEL = { placed: "placed", fulfilled: "on its way", rejected: "cancelled · refunded" } as const;
 const PILL = { placed: "pill-pending", fulfilled: "pill-approved", rejected: "pill-rejected" } as const;
@@ -32,7 +32,7 @@ export default async function OrdersPage() {
                   {o.note && ` · "${o.note}"`}
                 </p>
               </div>
-              <span className={`pill ${PILL[o.state]}`}>{LABEL[o.state]}</span>
+              <span className={`pill ${PILL[o.state]}`}>{refundPending(o) ? "refund requested" : LABEL[o.state]}</span>
             </Link>
           </li>
         ))}
