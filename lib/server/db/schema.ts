@@ -187,6 +187,15 @@ export const orders = pgTable(
     handledBy: text("handled_by").references(() => users.id),
     handledAt: timestamp("handled_at", { withTimezone: true }),
     internalNote: text("internal_note"),
+    // Who's on it, so two admins don't post the same prize. Only means anything while placed.
+    assignedTo: text("assigned_to").references(() => users.id),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }),
+    // The person asked to cancel. Nothing moves until an admin approves (the order is
+    // cancelled and refunded as usual) or denies it, and a denied order can't be asked again.
+    refundRequestedAt: timestamp("refund_requested_at", { withTimezone: true }),
+    refundReason: text("refund_reason"),
+    refundDeniedAt: timestamp("refund_denied_at", { withTimezone: true }),
+    refundDenial: text("refund_denial"),
     createdAt: now("created_at"),
   },
   (t) => [index("orders_user_idx").on(t.userId), index("orders_state_idx").on(t.state, t.createdAt)],
