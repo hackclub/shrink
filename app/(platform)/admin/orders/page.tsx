@@ -1,45 +1,45 @@
-import Link from "next/link";
-
-import { H1 } from "@/app/components/ui/bits";
 import { REWARD_BY_SLUG } from "@/lib/program";
 import { requireRole } from "@/lib/server/auth/current";
-import { allOrders } from "@/lib/server/orders";
+import { admins, allOrders } from "@/lib/server/orders";
 
-import OrdersTable from "./OrdersTable";
+import OrdersDesk from "./OrdersDesk";
 
-export default async function AdminOrdersPage() {
-  await requireRole("admin", "/admin/orders");
-  const rows = await allOrders();
-  const open = rows.filter((r) => r.order.state === "placed").length;
+// Taken once per render so the server and the browser agree on how long things have waited.
+const renderedAt = () => Date.now();
+
+export default async function AdminOrdersPage({ searchParams }: { searchParams: Promise<{ o?: string }> }) {
+  const me = await requireRole("admin", "/admin/orders");
+  const [rows, team, { o }] = await Promise.all([allOrders(), admins(), searchParams]);
 
   return (
-    <>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <H1 sub={`${open} to fulfil · ${rows.length} total. Addresses are revealed one at a time and every reveal is logged.`}>orders</H1>
-        <nav className="mb-[clamp(1.25rem,2vw,32px)] flex gap-1 text-[0.95rem] font-medium">
-          <Link href="/admin" className="rounded-[4px] px-2 py-1 text-black/60 hover:bg-black/5">
-            people
-          </Link>
-          <span className="rounded-[4px] bg-accent px-2 py-1">orders</span>
-          <Link href="/admin/audit" className="rounded-[4px] px-2 py-1 text-black/60 hover:bg-black/5">
-            audit
-          </Link>
-        </nav>
-      </div>
-      <OrdersTable
-        rows={rows.map((r) => ({
+    <OrdersDesk
+      now={renderedAt()}
+      initial={o ?? null}
+      me={me.id}
+      team={team}
+      rows={rows.map((r) => {
+        const reward = REWARD_BY_SLUG.get(r.order.rewardSlug);
+        return {
           id: r.order.id,
           number: r.order.number,
+          rewardSlug: r.order.rewardSlug,
           reward: r.order.rewardName,
-          digital: Boolean(REWARD_BY_SLUG.get(r.order.rewardSlug)?.digital),
+          img: reward?.img ? { src: `/design/rewards/${reward.img}.png`, w: reward.w ?? 200, h: reward.h ?? 200 } : null,
+          digital: Boolean(reward?.digital),
           cost: r.order.cost,
           state: r.order.state,
           note: r.order.note,
           internalNote: r.order.internalNote,
           createdAt: r.order.createdAt.toISOString(),
+          handledAt: r.order.handledAt?.toISOString() ?? null,
+          refundRequestedAt: r.order.refundRequestedAt?.toISOString() ?? null,
+          refundReason: r.order.refundReason,
+          refundDenial: r.order.refundDeniedAt ? (r.order.refundDenial ?? "") : null,
+          handler: r.handler,
+          assignee: r.order.assignedTo && r.assignee ? { id: r.order.assignedTo, name: r.assignee } : null,
           user: r.user,
-        }))}
-      />
-    </>
+        };
+      })}
+    />
   );
 }

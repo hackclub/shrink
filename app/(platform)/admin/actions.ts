@@ -8,9 +8,9 @@ import { airtableConfigured, queueSync, syncAll } from "@/lib/server/airtable";
 import { actionRole } from "@/lib/server/auth/current";
 import { db } from "@/lib/server/db/client";
 import { auditEvents, users } from "@/lib/server/db/schema";
-import { backfillProgramChannel, loadOrderAndUser, orderHandled, readAddress } from "@/lib/server/effects";
+import { backfillProgramChannel, loadOrderAndUser, orderHandled, readAddress, refundDenied } from "@/lib/server/effects";
 import * as ledger from "@/lib/server/ledger";
-import { OrderError, handleOrder } from "@/lib/server/orders";
+import { OrderError, assignOrder, denyRefund, handleOrder } from "@/lib/server/orders";
 import { requestOrigin } from "@/lib/server/origin";
 import { setRevoked } from "@/lib/server/referrals";
 import { env } from "@/lib/server/env";
@@ -95,6 +95,39 @@ export async function orderHandleAction(_prev: AdminState, form: FormData): Prom
   queueSync({ orders: [orderId] });
   revalidatePath("/admin/orders");
   return { error: null, ok: action === "fulfil" ? "Marked shipped." : "Cancelled and refunded." };
+}
+
+export async function refundDenyAction(_prev: AdminState, form: FormData): Promise<AdminState> {
+  const admin = await actionRole("admin");
+  const orderId = str(form, "order_id");
+  try {
+    await denyRefund(admin, orderId, str(form, "message"));
+  } catch (e) {
+    if (e instanceof OrderError) return { error: e.message };
+    console.error("[admin] refund deny", e);
+    return { error: "Something broke. Nothing changed." };
+  }
+  after(async () => {
+    const row = await loadOrderAndUser(orderId);
+    if (row) await refundDenied(row.order, row.user);
+  });
+  queueSync({ orders: [orderId] });
+  revalidatePath("/admin/orders");
+  return { error: null, ok: "Refund denied." };
+}
+
+export async function orderAssignAction(_prev: AdminState, form: FormData): Promise<AdminState> {
+  const admin = await actionRole("admin");
+  const orderId = str(form, "order_id");
+  try {
+    await assignOrder(admin, orderId, str(form, "assignee") || null);
+  } catch (e) {
+    if (e instanceof OrderError) return { error: e.message };
+    console.error("[admin] assign", e);
+    return { error: "Something broke. Nothing changed." };
+  }
+  revalidatePath("/admin/orders");
+  return { error: null, ok: "Assigned." };
 }
 
 export async function revealAddressAction(_prev: AdminState, form: FormData): Promise<AdminState> {

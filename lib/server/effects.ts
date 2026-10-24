@@ -114,7 +114,15 @@ async function referralPaid(author: User, ship: Ship, origin: string) {
 }
 
 export async function orderPlaced(order: Order, user: User, origin: string) {
-  await channel(`${who(user)} ordered *${esc(order.rewardName)}* for ${order.cost} BITES. <${origin}/admin/orders|orders>`);
+  await channel(`${who(user)} ordered *${esc(order.rewardName)}* for ${order.cost} BITES. <${origin}/admin/orders?o=${order.id}|orders>`);
+}
+
+export async function refundRequested(order: Order, user: User, origin: string) {
+  await channel(`${who(user)} asked for a refund on *${esc(order.rewardName)}* (#${order.number}). <${origin}/admin/orders?o=${order.id}|decide>`);
+}
+
+export async function refundDenied(order: Order, user: User) {
+  await dm(user, `we couldn't cancel your order for *${esc(order.rewardName)}*, so it's still coming.\n> ${esc(order.refundDenial ?? "")}`);
 }
 
 export async function orderHandled(order: Order, user: User) {

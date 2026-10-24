@@ -304,7 +304,7 @@ function orderFields(
     "Handled At": iso(o.handledAt),
     "Internal Note": o.internalNote,
     "Placed At": iso(o.createdAt),
-    "Admin URL": `${origin}/admin/orders`,
+    "Admin URL": `${origin}/admin/orders?o=${o.id}`,
     "Synced At": new Date().toISOString(),
   };
 }

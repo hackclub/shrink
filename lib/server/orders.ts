@@ -1,6 +1,7 @@
 import "server-only";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import { REWARD_BY_SLUG } from "@/lib/program";
 import { cleanPhone, phoneRequired } from "@/lib/shipping";
@@ -16,6 +17,10 @@ import { STAGING_ADDRESS } from "./staging";
 import { currentEligibility, tokenBinding } from "./users";
 
 export class OrderError extends Error {}
+
+// Asked for and not yet answered. Once denied it stays denied.
+export const refundPending = (o: Pick<Order, "state" | "refundRequestedAt" | "refundDeniedAt">) =>
+  o.state === "placed" && !!o.refundRequestedAt && !o.refundDeniedAt;
 
 export type AddressChoice = { id: string; address: Address };
 
@@ -107,6 +112,7 @@ export async function handleOrder(
     const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).for("update").limit(1);
     if (!order) throw new OrderError("No such order.");
     if (order.state !== "placed") throw new OrderError("That order was already handled.");
+    if (action === "fulfil" && refundPending(order)) throw new OrderError("They asked for a refund. Approve or deny that first.");
 
     const [updated] = await tx
       .update(orders)
@@ -150,10 +156,82 @@ export async function ordersOf(userId: string) {
   return db.select().from(orders).where(eq(orders.userId, userId)).orderBy(desc(orders.createdAt));
 }
 
+export async function requestRefund(user: User, orderId: string, reason: string): Promise<Order> {
+  return db.transaction(async (tx) => {
+    const [order] = await tx
+      .select()
+      .from(orders)
+      .where(and(eq(orders.id, orderId), eq(orders.userId, user.id)))
+      .for("update")
+      .limit(1);
+    if (!order) throw new OrderError("No such order.");
+    if (order.state !== "placed") throw new OrderError("This order's already been handled, so it can't be refunded now.");
+    if (order.refundDeniedAt) throw new OrderError("We already said no to a refund on this one.");
+    if (order.refundRequestedAt) return order;
+    const [updated] = await tx
+      .update(orders)
+      .set({ refundRequestedAt: new Date(), refundReason: reason.trim().slice(0, 500) || null })
+      .where(eq(orders.id, order.id))
+      .returning();
+    await tx.insert(auditEvents).values({ actorId: user.id, action: "order.refund_requested", subject: order.id });
+    return updated;
+  });
+}
+
+// Approving is just cancelling (handleOrder "reject"); this is the no.
+export async function denyRefund(admin: User, orderId: string, message: string): Promise<Order> {
+  const text = message.trim().slice(0, 500);
+  if (!text) throw new OrderError("Tell them why.");
+  const [updated] = await db
+    .update(orders)
+    .set({ refundDeniedAt: new Date(), refundDenial: text })
+    .where(and(eq(orders.id, orderId), eq(orders.state, "placed"), isNotNull(orders.refundRequestedAt), isNull(orders.refundDeniedAt)))
+    .returning();
+  if (!updated) throw new OrderError("There's no open refund request on that order.");
+  await db.insert(auditEvents).values({ actorId: admin.id, action: "order.refund_denied", subject: orderId });
+  return updated;
+}
+
+// Assigning someone else is fine: whoever plans the week hands orders out.
+export async function assignOrder(admin: User, orderId: string, assigneeId: string | null): Promise<void> {
+  if (assigneeId) {
+    const [who] = await db.select({ role: users.role }).from(users).where(eq(users.id, assigneeId)).limit(1);
+    if (who?.role !== "admin") throw new OrderError("Only admins can fulfil orders.");
+  }
+  const [updated] = await db
+    .update(orders)
+    .set({ assignedTo: assigneeId, assignedAt: assigneeId ? new Date() : null })
+    .where(and(eq(orders.id, orderId), eq(orders.state, "placed")))
+    .returning({ id: orders.id });
+  if (!updated) throw new OrderError("That order was already handled.");
+  await db.insert(auditEvents).values({ actorId: admin.id, action: "order.assign", subject: orderId, detail: { to: assigneeId } });
+}
+
+export async function admins() {
+  return db.select({ id: users.id, displayName: users.displayName }).from(users).where(eq(users.role, "admin")).orderBy(users.displayName);
+}
+
+const handlers = alias(users, "handler");
+const assignees = alias(users, "assignee");
+
 export async function allOrders() {
   return db
-    .select({ order: orders, user: { id: users.id, displayName: users.displayName, email: users.email, slackId: users.slackId } })
+    .select({
+      order: orders,
+      user: {
+        id: users.id,
+        displayName: users.displayName,
+        email: users.email,
+        slackId: users.slackId,
+        slackHandle: users.slackHandle,
+        avatarUrl: users.avatarUrl,
+      },
+      handler: handlers.displayName,
+      assignee: assignees.displayName,
+    })
     .from(orders)
     .innerJoin(users, eq(orders.userId, users.id))
+    .leftJoin(handlers, eq(orders.handledBy, handlers.id))
+    .leftJoin(assignees, eq(orders.assignedTo, assignees.id))
     .orderBy(desc(orders.createdAt));
 }

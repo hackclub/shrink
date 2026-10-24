@@ -8,9 +8,10 @@ import { REWARD_BY_SLUG } from "@/lib/program";
 import { requireUser } from "@/lib/server/auth/current";
 import { balance } from "@/lib/server/ledger";
 import { readAddress } from "@/lib/server/effects";
-import { orderFor } from "@/lib/server/orders";
+import { orderFor, refundPending } from "@/lib/server/orders";
 
 import Placed from "./Placed";
+import Refund from "./Refund";
 
 const LABEL = { placed: "placed", fulfilled: "on its way", rejected: "cancelled · refunded" } as const;
 const PILL = { placed: "pill-pending", fulfilled: "pill-approved", rejected: "pill-rejected" } as const;
@@ -53,7 +54,7 @@ export default async function OrderPage({
           <div className="hazard-thin" aria-hidden />
           <div className="flex items-start justify-between px-5 pt-4">
             <span className="wordmark text-[1.9rem] leading-none tracking-tight">SHRINK</span>
-            <span className={`pill ${PILL[order.state]}`}>{LABEL[order.state]}</span>
+            <span className={`pill ${PILL[order.state]}`}>{refundPending(order) ? "refund requested" : LABEL[order.state]}</span>
           </div>
 
           <div className="reward-sticker flex h-40 items-center justify-center px-5 pt-4">
@@ -116,6 +117,14 @@ export default async function OrderPage({
               all orders
             </Link>
           </div>
+          {order.state === "placed" && (
+            <Refund
+              orderId={order.id}
+              cost={order.cost}
+              requestedAt={order.refundRequestedAt?.toISOString() ?? null}
+              denial={order.refundDeniedAt ? (order.refundDenial ?? "") : null}
+            />
+          )}
         </div>
       </div>
     </>
