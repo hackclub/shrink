@@ -10,6 +10,7 @@
 | blahaj.png | IKEA product photo (ikea.com) | © IKEA, product image |
 | orpheus-pico.png | cdn.hackclub.com (orphpico.png) | Hack Club |
 | sticker-pack.png | Hack Club sticker pack (user-cdn.hackclub-assets.com) | Hack Club |
+| stickers.png | Hack Club stickers (user-cdn.hackclub-assets.com) | Hack Club |
 | socks.png | Hack Club socks (user-cdn.hackclub-assets.com) | Hack Club |
 | retro-handheld.png | Miyoo Mini Plus product photo (lomiyoo.com) | © vendor, product image |
 | claw-machine.png | "The Claw" mini claw machine, Amazon listing photo | © vendor, product image |

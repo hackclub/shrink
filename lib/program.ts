@@ -57,6 +57,7 @@ export type Reward = {
 };
 
 export const REWARDS: Reward[] = [
+  { slug: "stickers", name: "Hack Club stickers", label: ["stickers"], desc: "A few Hack Club stickers. Shipping is only tracked in India.", img: "stickers", w: 360, h: 250, cost: 1, size: 0.09, tilt: -3 },
   { slug: "nfc-stickers", name: "NFC stickers", label: ["NFC Stickers"], desc: "A pack of programmable NFC stickers.", img: "nfc-stickers", w: 720, h: 445, cost: 2, size: 0.09, tilt: -4 },
   { slug: "rubber-duck", name: "Debugger rubber duckie", label: ["debugger", "rubber duckie"], desc: "A rubber duck for rubber duck debugging.", img: "rubber-duck", w: 492, h: 557, cost: 2, size: 0.08, tilt: 3 },
   { slug: "floppy-disk", name: "Floppy disk", label: ["floppy disk"], desc: "A 3.5\" 1.44MB floppy disk.", img: "floppy-disk", w: 695, h: 720, cost: 2, size: 0.08, tilt: -2 },
