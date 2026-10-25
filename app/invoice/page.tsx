@@ -18,7 +18,7 @@ function nextMonth(month: string): string {
 }
 
 // Kept out of /review on purpose: everything under it is screen-recorded, and this
-// page has the reviewer's address and bank details on it.
+// page has the reviewer's address on it.
 export default async function InvoicePage({ searchParams }: PageProps<"/invoice">) {
   const reviewer = await requireRole("reviewer", "/invoice");
   const { month: asked } = await searchParams;
@@ -44,7 +44,7 @@ export default async function InvoicePage({ searchParams }: PageProps<"/invoice"
         decisions: work.decisions,
       }}
       rate={env.REVIEWER_HOURLY_RATE}
-      defaults={{ name: reviewer.displayName, email: reviewer.email, manager: env.REVIEWER_MANAGER, address }}
+      defaults={{ name: reviewer.displayName, email: reviewer.email, address }}
     />
   );
 }

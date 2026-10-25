@@ -30,16 +30,12 @@ export default function Invoice({
   issued: string;
   work: Work;
   rate: number;
-  defaults: { name: string; email: string; manager: string; address: string };
+  defaults: { name: string; email: string; address: string };
 }) {
   const router = useRouter();
   const [name, setName] = useState(defaults.name);
   const [email, setEmail] = useState(defaults.email);
-  const [manager, setManager] = useState(defaults.manager);
   const [address, setAddress] = useState(defaults.address);
-  const [note, setNote] = useState("");
-  // Never leaves the browser: no state here is sent anywhere, it only goes into the PDF.
-  const [banking, setBanking] = useState("");
 
   const total = Math.round(work.hours * rate * 100) / 100;
   const ready = name.trim().length > 0 && work.hours > 0;
@@ -84,23 +80,8 @@ export default function Invoice({
           <Field label="Email">
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </Field>
-          <Field label="Manager">
-            <Input value={manager} onChange={(e) => setManager(e.target.value)} />
-          </Field>
           <Field label="Address">
             <Textarea rows={3} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="If applicable" />
-          </Field>
-          <Field label="Note">
-            <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional, shown under the line item" />
-          </Field>
-          <Field label="Banking information">
-            <Textarea
-              rows={3}
-              value={banking}
-              onChange={(e) => setBanking(e.target.value)}
-              placeholder="Leave blank to be paid to the payout method on your HCB contractor profile"
-            />
-            <span className="text-xs text-muted-foreground">Only goes into the PDF. Nothing on this page is saved.</span>
           </Field>
           {work.decisions === 0 && <p className="text-sm text-destructive">You didn&apos;t decide any ships in {monthName(month)}, so there&apos;s nothing to bill.</p>}
         </form>
@@ -125,7 +106,6 @@ export default function Invoice({
                 <p>YSWS - Shrink</p>
                 <p className="text-neutral-600">212 Battery St #3</p>
                 <p className="text-neutral-600">Burlington, VT 05401</p>
-                {manager && <p className="text-neutral-600">Manager: {manager}</p>}
               </div>
             </div>
 
@@ -147,7 +127,6 @@ export default function Invoice({
                   <td className="py-3 pr-6">
                     <p className="font-medium">Project review</p>
                     <p className="text-neutral-600">YSWS - Shrink, {monthName(month)}</p>
-                    {note && <p className="mt-1 whitespace-pre-line text-neutral-600">{note}</p>}
                   </td>
                   <td className="py-3 pl-6 text-right font-mono tabular-nums">{work.hours.toFixed(2)}</td>
                   <td className="py-3 pl-6 text-right font-mono tabular-nums">{usd.format(rate)}</td>
@@ -166,7 +145,7 @@ export default function Invoice({
 
             <div className="mt-10">
               <Caption>Payment</Caption>
-              <p className="whitespace-pre-line">{banking.trim() || "To the payout method on my HCB contractor profile."}</p>
+              <p>To the payout method on my HCB contractor profile.</p>
             </div>
           </div>
         </article>
