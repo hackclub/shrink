@@ -56,6 +56,10 @@ export const env = {
   // Public origin for links written to Airtable from the cron job.
   APP_URL: (process.env.APP_URL ?? "").replace(/\/$/, ""),
 
+  // Reviewer invoices (/invoice): dollars per hour of active review time, and who signs off.
+  REVIEWER_HOURLY_RATE: Number(process.env.REVIEWER_HOURLY_RATE) || 6,
+  REVIEWER_MANAGER: process.env.REVIEWER_MANAGER ?? "",
+
   ADMIN_EMAILS: (process.env.ADMIN_EMAILS ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())

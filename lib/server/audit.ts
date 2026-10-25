@@ -244,3 +244,25 @@ export async function reviewerTotal(userId: string): Promise<{ ms: number; decis
   `);
   return { ms: Number(r?.ms ?? 0), decisions: Number(r?.decisions ?? 0) };
 }
+
+// One reviewer's billable work for an invoice: the calls they made in [from, to) and
+// all the active time on those ships, so each ship is billed once, in the month it was decided.
+export async function reviewerPeriod(userId: string, from: Date, to: Date): Promise<{ ms: number; decisions: number }> {
+  const [r] = await db.execute<Record<string, unknown>>(sql`
+    with d as (${DECISIONS})
+    select count(*) as decisions,
+      coalesce(sum((select sum(a.active_ms) from review_activity a where a.user_id = d.decider and a.ship_id = d.ship_id)), 0) as ms
+    from d where d.decider = ${userId} and d.decided_at >= ${at(from)} and d.decided_at < ${at(to)}
+  `);
+  return { ms: Number(r?.ms ?? 0), decisions: Number(r?.decisions ?? 0) };
+}
+
+// "YYYY-MM" Vermont months the reviewer made calls in, newest first.
+export async function reviewerMonths(userId: string): Promise<string[]> {
+  const rows = await db.execute<Record<string, unknown>>(sql`
+    with d as (${DECISIONS})
+    select distinct to_char(d.decided_at at time zone 'America/New_York', 'YYYY-MM') as month
+    from d where d.decider = ${userId} and d.decided_at is not null order by month desc
+  `);
+  return rows.map((r) => String(r.month));
+}

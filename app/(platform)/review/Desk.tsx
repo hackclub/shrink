@@ -394,7 +394,10 @@ async function TotalTime({ total }: { total: DeskProps["total"] }) {
   return (
     <>
       Your review time <span className="font-mono text-foreground tabular-nums">{duration(t.ms)}</span>
-      {` · ${t.decisions} decided`}
+      {` · ${t.decisions} decided · `}
+      <a href="/invoice" className="underline underline-offset-2 hover:text-foreground">
+        Invoice
+      </a>
     </>
   );
 }
