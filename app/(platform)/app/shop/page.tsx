@@ -1,5 +1,5 @@
 import { H1 } from "@/app/components/ui/bits";
-import { REWARDS } from "@/lib/program";
+import { SHOP_REWARDS } from "@/lib/program";
 import { requireUser } from "@/lib/server/auth/current";
 import { HCA_ADDRESSES_URL, HCA_VERIFY_URL } from "@/lib/server/auth/hca";
 import { balance } from "@/lib/server/ledger";
@@ -23,7 +23,7 @@ export default async function ShopPage() {
         the shop
       </H1>
       <Shop
-        rewards={REWARDS.map((r) => ({
+        rewards={SHOP_REWARDS.map((r) => ({
           slug: r.slug,
           name: r.name,
           desc: r.desc,

@@ -46,7 +46,7 @@ export async function addressesFor(user: User): Promise<AddressChoice[] | "recon
 
 export async function placeOrder(user: User, input: { rewardSlug: string; addressId: string; phone: string; note: string }): Promise<Order> {
   const reward = REWARD_BY_SLUG.get(input.rewardSlug);
-  if (!reward) throw new OrderError("That prize doesn't exist.");
+  if (!reward || reward.hidden) throw new OrderError("That prize doesn't exist.");
   const note = input.note.trim().slice(0, 500);
 
   const eligibility = await currentEligibility(user);

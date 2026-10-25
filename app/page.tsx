@@ -12,7 +12,7 @@ import ScrollMarquee from "./components/ScrollMarquee";
 import SkillBadge from "./components/SkillBadge";
 import Wordmark from "./components/Wordmark";
 import { EXAMPLES } from "@/lib/examples";
-import { BADGES, BASE_CAP, REWARDS } from "@/lib/program";
+import { BADGES, BASE_CAP, SHOP_REWARDS } from "@/lib/program";
 
 const IDEAS: [string, string][] = [
   ["A synthesizer:", " build a playable instrument with UI in 3KB"],
@@ -197,7 +197,7 @@ export default function Home() {
           </p>
 
           <div className="mt-[clamp(1rem,1.6vw,30px)] -mx-[var(--gutter)]">
-            <RewardPool rewards={REWARDS} />
+            <RewardPool rewards={SHOP_REWARDS} />
           </div>
 
           <p className="mt-[clamp(0.5rem,0.8vw,14px)] text-center text-[clamp(0.8rem,0.95vw,1.125rem)] font-medium leading-[1.6] text-black/50">
