@@ -11,7 +11,7 @@ import { decrypt, encryptJson } from "./crypto";
 import { db } from "./db/client";
 import { auditEvents, orders, users, type Order, type User } from "./db/schema";
 import { orderBinding } from "./effects";
-import { staging } from "./env";
+import { env, staging } from "./env";
 import * as ledger from "./ledger";
 import { STAGING_ADDRESS } from "./staging";
 import { currentEligibility, tokenBinding } from "./users";
@@ -45,6 +45,7 @@ export async function addressesFor(user: User): Promise<AddressChoice[] | "recon
 }
 
 export async function placeOrder(user: User, input: { rewardSlug: string; addressId: string; phone: string; note: string }): Promise<Order> {
+  if (!env.SHOP_OPEN) throw new OrderError("The Shrink shop is closed.");
   const reward = REWARD_BY_SLUG.get(input.rewardSlug);
   if (!reward || reward.hidden) throw new OrderError("That prize doesn't exist.");
   const note = input.note.trim().slice(0, 500);

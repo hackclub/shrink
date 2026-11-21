@@ -2,6 +2,7 @@ import { H1 } from "@/app/components/ui/bits";
 import { SHOP_REWARDS } from "@/lib/program";
 import { requireUser } from "@/lib/server/auth/current";
 import { HCA_ADDRESSES_URL, HCA_VERIFY_URL } from "@/lib/server/auth/hca";
+import { env } from "@/lib/server/env";
 import { balance } from "@/lib/server/ledger";
 import { addressesFor } from "@/lib/server/orders";
 
@@ -35,6 +36,7 @@ export default async function ShopPage() {
           tilt: r.tilt,
         }))}
         bites={bites}
+        open={env.SHOP_OPEN}
         eligibility={user.eligibility}
         addresses={addresses === "reconnect" ? null : addresses.map((a) => ({ id: a.id, ...a.address }))}
         hcaAddressesUrl={HCA_ADDRESSES_URL}
