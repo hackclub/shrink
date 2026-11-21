@@ -56,6 +56,10 @@ export const env = {
   // Public origin for links written to Airtable from the cron job.
   APP_URL: (process.env.APP_URL ?? "").replace(/\/$/, ""),
 
+  // The shop takes new orders only when SHOP_OPEN=1. Balances, order history, refunds and
+  // fulfilment keep working while it's closed.
+  SHOP_OPEN: process.env.SHOP_OPEN === "1" || process.env.SHOP_OPEN === "true",
+
   // Reviewer invoices (/invoice): dollars per hour of active review time.
   REVIEWER_HOURLY_RATE: Number(process.env.REVIEWER_HOURLY_RATE) || 6,
 

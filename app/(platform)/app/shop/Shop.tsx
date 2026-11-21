@@ -16,6 +16,7 @@ type AddressView = { id: string; recipient: string; line1: string; line2: string
 export default function Shop({
   rewards,
   bites,
+  open: shopOpen,
   eligibility,
   addresses,
   hcaAddressesUrl,
@@ -23,6 +24,7 @@ export default function Shop({
 }: {
   rewards: RewardView[];
   bites: number;
+  open: boolean;
   eligibility: string;
   addresses: AddressView[] | null;
   hcaAddressesUrl: string;
@@ -33,7 +35,13 @@ export default function Shop({
 
   return (
     <>
-      {!eligible && (
+      {!shopOpen && (
+        <div className="mb-6">
+          <Notice>The Shrink shop is closed. Your BITES and orders are still here.</Notice>
+        </div>
+      )}
+
+      {shopOpen && !eligible && (
         <div className="mb-6">
           <Notice>
             {eligibility === "blocked_over_18" ? (
@@ -55,14 +63,14 @@ export default function Shop({
         <div className="diag-stripes absolute inset-0" aria-hidden />
         <ul className="relative grid grid-cols-2 gap-x-[clamp(8px,1vw,20px)] gap-y-[clamp(20px,2.4vw,44px)] px-[var(--gutter)] py-[clamp(1.5rem,3vw,56px)] sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
           {rewards.map((r) => {
-            const can = eligible && bites >= r.cost;
+            const can = shopOpen && eligible && bites >= r.cost;
             return (
               <li key={r.slug} className="flex">
                 <button
                   type="button"
                   disabled={!can}
                   onClick={() => setOpen(r)}
-                  title={can ? `${r.name} · ${r.desc}` : eligible ? `Costs ${r.cost} BITES, you have ${bites}.` : r.name}
+                  title={can ? `${r.name} · ${r.desc}` : !shopOpen ? `${r.name} · the shop is closed` : eligible ? `Costs ${r.cost} BITES, you have ${bites}.` : r.name}
                   className="shop-item flex w-full cursor-pointer flex-col items-center gap-2 rounded-[10px] px-2 pt-3 pb-3 text-center disabled:cursor-not-allowed"
                   style={{ "--tilt": `${r.tilt}deg` } as React.CSSProperties}
                 >
@@ -85,7 +93,7 @@ export default function Shop({
                   <span className="rounded-[0.2em] bg-black px-[0.5em] py-[0.25em] font-mono text-xs font-medium leading-none text-white">
                     {r.cost} BITES
                   </span>
-                  {eligible && !can && <span className="font-mono text-xs font-medium text-black/50">{r.cost - bites} more to go</span>}
+                  {shopOpen && eligible && !can && <span className="font-mono text-xs font-medium text-black/50">{r.cost - bites} more to go</span>}
                 </button>
               </li>
             );
@@ -93,7 +101,7 @@ export default function Shop({
         </ul>
       </section>
 
-      {open && (
+      {shopOpen && open && (
         <OrderDialog
           reward={open}
           bites={bites}
